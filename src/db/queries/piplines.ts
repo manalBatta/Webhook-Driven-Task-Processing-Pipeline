@@ -11,6 +11,13 @@ export const getPipelineById = async (
   return rows[0];
 };
 
+
+export const getPipelineBySourceKey = async (
+  sourceKey: string
+): Promise<Pipeline | undefined> => {
+  const rows = await db.select().from(pipelines).where(eq(pipelines.sourceKey, sourceKey));
+  return rows[0];
+};
 export const createPipline = async ({
   name,
   actionType,
@@ -20,3 +27,5 @@ export const createPipline = async ({
     .insert(pipelines)
     .values({ name, actionType, actionConfig, sourceKey: crypto.randomUUID() })
     .returning();
+
+

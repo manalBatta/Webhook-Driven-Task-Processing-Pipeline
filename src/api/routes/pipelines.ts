@@ -2,7 +2,7 @@ import {
   createPipline,
   getAllPiplines,
   getPipelineById,
-} from "../../db/qruery/piplines";
+} from "../../db/queries/piplines";
 import { Request, Response } from "express";
 import express from "express";
 import { NewPipeline, Pipeline } from "../../db/schema";

@@ -1,10 +1,146 @@
-// For now, just log periodically so we know the worker is running.
 import "dotenv/config";
+import { Job, NewDeliveryAttempt } from "../db/schema";
+import { getPipelineById } from "../db/queries/piplines";
+import { getAllSubscribers } from "../db/queries/subscribers";
+import {
+  getPendingJobs,
+  setJobStatus,
+  updateJobProcessedPayload,
+} from "../db/queries/jobs";
+import { createDeliveryAttempt } from "../db/queries/deliveryAttempts";
+
 const workerName = "job-worker";
+const POLL_MS = 3000;
+const MAX_DELIVERY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 5000;
 
 console.log(`${workerName} started`);
 
-setInterval(() => {
-  console.log(`${workerName} heartbeat at ${new Date().toISOString()}`);
-}, 5000);
+function runAction(
+  actionType: string,
+  rawPayload: unknown,
+  _actionConfig: Record<string, unknown> | null
+): unknown {
+  switch (actionType) {
+    case "pass":
+      return rawPayload;
+    default:
+      return rawPayload;
+  }
+}
 
+async function makePostRequest(
+  url: string,
+  body: unknown
+): Promise<{ statusCode: number; success: boolean; errorMessage?: string }> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const success = response.status >= 200 && response.status < 400;
+    let errorMessage: string | undefined;
+    if (!success) {
+      const text = await response.text();
+      errorMessage = text.slice(0, 500) || `HTTP ${response.status}`;
+    }
+    return { statusCode: response.status, success, errorMessage };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      statusCode: 0,
+      success: false,
+      errorMessage: message,
+    };
+  }
+}
+
+async function recordAttempt(
+  jobId: string,
+  subscriberId: string,
+  attemptNumber: number,
+  result: { statusCode: number; success: boolean; errorMessage?: string }
+): Promise<void> {
+  const attempt: NewDeliveryAttempt = {
+    jobId,
+    subscriberId,
+    attemptNumber,
+    statusCode: result.statusCode || null,
+    success: result.success,
+    errorMessage: result.errorMessage ?? null,
+  };
+  await createDeliveryAttempt(attempt);
+}
+
+async function deliverToSubscriber(
+  targetUrl: string,
+  payload: unknown,
+  jobId: string,
+  subscriberId: string
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt++) {
+    const result = await makePostRequest(targetUrl, payload);
+    await recordAttempt(jobId, subscriberId, attempt, result);
+    if (result.success) return true;
+    if (attempt < MAX_DELIVERY_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    }
+  }
+  return false;
+}
+
+async function processJob(job: Job): Promise<void> {
+  const pipeline = await getPipelineById(job.pipelineId);
+  if (!pipeline) {
+    await setJobStatus(job.id, "failed");
+    return;
+  }
+
+  const processedPayload = runAction(
+    pipeline.actionType,
+    job.rawPayload,
+    pipeline.actionConfig
+  );
+  await setJobStatus(job.id, "processing");
+  await updateJobProcessedPayload(job.id, processedPayload);
+
+  const subscribers = await getAllSubscribers(job.pipelineId);
+  if (!subscribers?.length) {
+    await setJobStatus(job.id, "completed");
+    return;
+  }
+
+  let allOk = true;
+  for (const sub of subscribers) {
+    if (!sub.isActive) continue;
+    const ok = await deliverToSubscriber(
+      sub.targetUrl,
+      processedPayload,
+      job.id,
+      sub.id
+    );
+    if (!ok) allOk = false;
+  }
+
+  await setJobStatus(job.id, allOk ? "completed" : "failed");
+}
+
+async function runCycle(): Promise<void> {
+  try {
+    const jobs = await getPendingJobs(5);
+    for (const job of jobs) {
+      try {
+        await processJob(job);
+      } catch (err) {
+        console.error(`${workerName} error processing job ${job.id}:`, err);
+        await setJobStatus(job.id, "failed");
+      }
+    }
+  } catch (err) {
+    console.error(`${workerName} poll error:`, err);
+  }
+}
+
+setInterval(runCycle, POLL_MS);
+runCycle();

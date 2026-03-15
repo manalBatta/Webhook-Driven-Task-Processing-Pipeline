@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "../connect";
 import { NewPipeline, Pipeline, pipelines } from "../schema";
-import { CreatePipelineInput } from "../../shared/types";
 
 export const getAllPiplines = async () => await db.select().from(pipelines);
 

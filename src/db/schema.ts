@@ -65,3 +65,6 @@ export const subscribers = pgTable("subscribers", {
 
 export type Pipeline = InferSelectModel<typeof pipelines>;
 export type NewPipeline = InferInsertModel<typeof pipelines>;
+
+export type Subscriber = InferSelectModel<typeof subscribers>;
+export type NewSubscriber = InferInsertModel<typeof subscribers>;

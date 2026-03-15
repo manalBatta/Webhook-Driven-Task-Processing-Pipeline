@@ -4,7 +4,6 @@ import {
   getPipelineById,
 } from "../../db/qruery/piplines";
 import { Request, Response } from "express";
-import { CreatePipelineInput } from "../../shared/types";
 import express from "express";
 import { NewPipeline, Pipeline } from "../../db/schema";
 
@@ -23,7 +22,7 @@ pipelinesRouter.post("/", async (req: Request, res: Response) => {
 
 pipelinesRouter.get("/", async (req: Request, res: Response) => {
   try {
-    const pipelines:Pipeline[] = await getAllPiplines();
+    const pipelines: Pipeline[] = await getAllPiplines();
     console.log("pipelines result", pipelines);
     res.status(200).send(pipelines);
   } catch (error) {
@@ -37,9 +36,7 @@ pipelinesRouter.get("/:id", async (req: Request, res: Response) => {
     const pipeline = await getPipelineById(id);
     if (!pipeline) {
       res.status(404).json({ error: "Pipeline not found" });
-      return;
-    }
-    res.status(200).send(pipeline);
+    } else res.status(200).send(pipeline);
   } catch (error) {
     res.status(500).send("Internal server error" + error);
   }

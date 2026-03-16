@@ -44,7 +44,6 @@ export const jobs = pgTable("jobs", {
     .$type<unknown | null>()
     .default(null),
   status: text("status").notNull(), // pending | processing | completed | failed
-  retries: integer("retries").notNull().default(0),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()

@@ -3,7 +3,7 @@ import { Job, NewDeliveryAttempt } from "../db/schema";
 import { getPipelineById } from "../db/queries/piplines";
 import { getAllSubscribers } from "../db/queries/subscribers";
 import {
-  getPendingJobs,
+  claimPendingJobs,
   setJobStatus,
   updateJobProcessedPayload,
 } from "../db/queries/jobs";
@@ -13,13 +13,15 @@ const workerName = "job-worker";
 const POLL_MS = 3000;
 const MAX_DELIVERY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5000;
-
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 console.log(`${workerName} started`);
 
 function runAction(
   actionType: string,
   rawPayload: unknown,
-  actionConfig: Record<string, unknown> | null
+  actionConfig: Record<string, unknown> | null,
 ): unknown {
   const obj =
     typeof rawPayload === "object" && rawPayload !== null
@@ -46,7 +48,7 @@ function runAction(
       for (const [key, value] of Object.entries(obj)) {
         result = result.replace(
           new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "g"),
-          String(value)
+          String(value),
         );
       }
       return { message: result };
@@ -67,16 +69,28 @@ function runAction(
           pass = actual !== value;
           break;
         case "gt":
-          pass = typeof actual === "number" && typeof value === "number" && actual > value;
+          pass =
+            typeof actual === "number" &&
+            typeof value === "number" &&
+            actual > value;
           break;
         case "gte":
-          pass = typeof actual === "number" && typeof value === "number" && actual >= value;
+          pass =
+            typeof actual === "number" &&
+            typeof value === "number" &&
+            actual >= value;
           break;
         case "lt":
-          pass = typeof actual === "number" && typeof value === "number" && actual < value;
+          pass =
+            typeof actual === "number" &&
+            typeof value === "number" &&
+            actual < value;
           break;
         case "lte":
-          pass = typeof actual === "number" && typeof value === "number" && actual <= value;
+          pass =
+            typeof actual === "number" &&
+            typeof value === "number" &&
+            actual <= value;
           break;
         default:
           pass = actual === value;
@@ -91,7 +105,7 @@ function runAction(
 
 async function makePostRequest(
   url: string,
-  body: unknown
+  body: unknown,
 ): Promise<{ statusCode: number; success: boolean; errorMessage?: string }> {
   try {
     const response = await fetch(url, {
@@ -120,7 +134,7 @@ async function recordAttempt(
   jobId: string,
   subscriberId: string,
   attemptNumber: number,
-  result: { statusCode: number; success: boolean; errorMessage?: string }
+  result: { statusCode: number; success: boolean; errorMessage?: string },
 ): Promise<void> {
   const attempt: NewDeliveryAttempt = {
     jobId,
@@ -137,14 +151,14 @@ async function deliverToSubscriber(
   targetUrl: string,
   payload: unknown,
   jobId: string,
-  subscriberId: string
+  subscriberId: string,
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt++) {
     const result = await makePostRequest(targetUrl, payload);
     await recordAttempt(jobId, subscriberId, attempt, result);
     if (result.success) return true;
     if (attempt < MAX_DELIVERY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
     }
   }
   return false;
@@ -153,6 +167,9 @@ async function deliverToSubscriber(
 async function processJob(job: Job): Promise<void> {
   const pipeline = await getPipelineById(job.pipelineId);
   if (!pipeline) {
+    console.log(
+      `failed to fetch pipeline from process Job piplineid=${job.pipelineId} the job is ${JSON.stringify(job)}`,
+    );
     await setJobStatus(job.id, "failed");
     return;
   }
@@ -160,9 +177,8 @@ async function processJob(job: Job): Promise<void> {
   const processedPayload = runAction(
     pipeline.actionType,
     job.rawPayload,
-    pipeline.actionConfig
+    pipeline.actionConfig,
   );
-  await setJobStatus(job.id, "processing");
   await updateJobProcessedPayload(job.id, processedPayload);
 
   if (processedPayload === null) {
@@ -176,24 +192,19 @@ async function processJob(job: Job): Promise<void> {
     return;
   }
 
-  let allOk = true;
-  for (const sub of subscribers) {
-    if (!sub.isActive) continue;
-    const ok = await deliverToSubscriber(
-      sub.targetUrl,
-      processedPayload,
-      job.id,
-      sub.id
-    );
-    if (!ok) allOk = false;
-  }
+  const activeSubscribers = subscribers.filter((s) => s.isActive);
+  const deliveryPromises = activeSubscribers.map((sub) =>
+    deliverToSubscriber(sub.targetUrl, processedPayload, job.id, sub.id),
+  );
+  const results = await Promise.all(deliveryPromises);
+  const allOk = results.every((ok) => ok);
 
   await setJobStatus(job.id, allOk ? "completed" : "failed");
 }
 
 async function runCycle(): Promise<void> {
   try {
-    const jobs = await getPendingJobs(5);
+    const jobs = await claimPendingJobs(5);
     for (const job of jobs) {
       try {
         await processJob(job);
@@ -207,5 +218,11 @@ async function runCycle(): Promise<void> {
   }
 }
 
-setInterval(runCycle, POLL_MS);
-runCycle();
+async function loop() {
+  while (true) {
+    await runCycle();
+    await sleep(POLL_MS);
+  }
+}
+
+void loop();

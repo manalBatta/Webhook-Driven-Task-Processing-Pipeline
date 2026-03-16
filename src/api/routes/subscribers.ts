@@ -9,19 +9,12 @@ import { getPipelineBySourceKey } from "../../db/queries/piplines";
 
 export const subscribersRouter = express.Router({ mergeParams: true }); //mergePrams is neccary to see the Router path params {id}
 
+
 subscribersRouter.post("/", async (req: Request, res: Response) => {
   try {
     const targetUrl: string = req.body.targetUrl;
-    const pipelineSourceKey: string = req.params.id.toString();
-    const pipeline = await getPipelineBySourceKey(pipelineSourceKey);
-    if (!pipeline) {
-      res.status(404).send("Couldn't Create Subscriber");
-      return;
-    }
-    const subscriber = await createSubscriber({
-      targetUrl,
-      pipelineId: pipeline.id,
-    });
+    const pipelineId: string = req.params.id.toString();
+    const subscriber = await createSubscriber({ targetUrl, pipelineId });
     if (!subscriber) {
       res.status(404).send("Couldn't Create Subscriber");
     } else res.status(201).send(subscriber);

@@ -15,6 +15,13 @@
       "when": 1773548583580,
       "tag": "0001_naive_queen_noir",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773672554310,
+      "tag": "0002_fluffy_loners",
+      "breakpoints": true
     }
   ]
 }

@@ -44,6 +44,7 @@ export const jobs = pgTable("jobs", {
     .$type<unknown | null>()
     .default(null),
   status: text("status").notNull(), // pending | processing | completed | failed
+  retries: integer("retries").notNull().default(0),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
@@ -71,6 +72,45 @@ export const deliveryAttempts = pgTable("delivery_attempts", {
     .notNull(),
 });
 
+export const candidates = pgTable("candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pipelineId: uuid("pipeline_id")
+    .notNull()
+    .references(() => pipelines.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id")
+    .notNull()
+    .references(() => jobs.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  resumeSummary: text("resume_summary"),
+  aiScore: integer("ai_score").notNull(),
+  status: text("status").notNull(), // screened | invited | rejected
+  metadata: jsonb("metadata").$type<Record<string, unknown> | null>().default(null),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// For non-subscriber deliveries (e.g., email invitations)
+export const deliveryEvents = pgTable("delivery_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobId: uuid("job_id")
+    .notNull()
+    .references(() => jobs.id, { onDelete: "cascade" }),
+  pipelineId: uuid("pipeline_id")
+    .notNull()
+    .references(() => pipelines.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(), // email | other
+  target: text("target").notNull(), // email address or URL
+  attemptNumber: integer("attempt_number").notNull(),
+  statusCode: integer("status_code"),
+  success: boolean("success").notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export type Pipeline = InferSelectModel<typeof pipelines>;
 export type NewPipeline = InferInsertModel<typeof pipelines>;
 
@@ -82,3 +122,9 @@ export type NewJob = InferInsertModel<typeof jobs>;
 
 export type DeliveryAttempt = InferSelectModel<typeof deliveryAttempts>;
 export type NewDeliveryAttempt = InferInsertModel<typeof deliveryAttempts>;
+
+export type Candidate = InferSelectModel<typeof candidates>;
+export type NewCandidate = InferInsertModel<typeof candidates>;
+
+export type DeliveryEvent = InferSelectModel<typeof deliveryEvents>;
+export type NewDeliveryEvent = InferInsertModel<typeof deliveryEvents>;

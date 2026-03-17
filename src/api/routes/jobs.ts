@@ -4,6 +4,7 @@ import { getPipelineBySourceKey } from "../../db/queries/piplines";
 import { NewJob } from "../../db/schema";
 import {
   createJob,
+  getAtsJobsByCandidateScore,
   getJobById,
   getJobs,
 } from "../../db/queries/jobs";
@@ -44,7 +45,28 @@ jobsRouter.get("/jobs", async (req: Request, res: Response) => {
     const status =
       typeof req.query.status === "string" ? req.query.status : undefined;
     const limit = req.query.limit ? Number(req.query.limit) : undefined;
-    const jobs = await getJobs({ pipelineId, status, limit });
+    const minCandidateScore =
+      typeof req.query.minCandidateScore === "string"
+        ? Number(req.query.minCandidateScore)
+        : undefined;
+    const maxCandidateScore =
+      typeof req.query.maxCandidateScore === "string"
+        ? Number(req.query.maxCandidateScore)
+        : undefined;
+
+    const useAtsFilter =
+      typeof minCandidateScore === "number" ||
+      typeof maxCandidateScore === "number";
+
+    const jobs = useAtsFilter
+      ? await getAtsJobsByCandidateScore({
+          pipelineId,
+          status,
+          limit,
+          minCandidateScore,
+          maxCandidateScore,
+        })
+      : await getJobs({ pipelineId, status, limit });
     res.status(200).json(jobs);
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });

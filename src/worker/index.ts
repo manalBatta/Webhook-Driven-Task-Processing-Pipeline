@@ -8,6 +8,7 @@ import {
   updateJobProcessedPayload,
 } from "../db/queries/jobs";
 import { createDeliveryAttempt } from "../db/queries/deliveryAttempts";
+import { runSmartAtsScreener } from "./actions/atsScreener";
 
 const workerName = "job-worker";
 const POLL_MS = 3000;
@@ -174,15 +175,36 @@ async function processJob(job: Job): Promise<void> {
     return;
   }
 
-  const processedPayload = runAction(
-    pipeline.actionType,
-    job.rawPayload,
-    pipeline.actionConfig,
-  );
-  await updateJobProcessedPayload(job.id, processedPayload);
+  let processedPayload: unknown;
+  let shouldDeliverToSubscribers = true;
+  let finalJobStatusIfNoDelivery: "completed" | "failed" = "completed";
+
+  if (pipeline.actionType === "SMART_ATS_SCREENER") {
+    const atsResult = await runSmartAtsScreener({
+      jobId: job.id,
+      pipelineId: pipeline.id,
+      rawPayload: job.rawPayload,
+      actionConfig: pipeline.actionConfig,
+    });
+    processedPayload = atsResult.processedPayload;
+    shouldDeliverToSubscribers = atsResult.shouldDeliverToSubscribers;
+    finalJobStatusIfNoDelivery = atsResult.finalJobStatusIfNoDelivery;
+  } else {
+    processedPayload = runAction(
+      pipeline.actionType,
+      job.rawPayload,
+      pipeline.actionConfig,
+    );
+    await updateJobProcessedPayload(job.id, processedPayload);
+  }
 
   if (processedPayload === null) {
     await setJobStatus(job.id, "completed");
+    return;
+  }
+
+  if (!shouldDeliverToSubscribers) {
+    await setJobStatus(job.id, finalJobStatusIfNoDelivery);
     return;
   }
 

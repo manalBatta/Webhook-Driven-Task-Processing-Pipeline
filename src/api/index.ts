@@ -12,6 +12,6 @@ app.use(express.json());
 app.use("/pipelines", pipelinesRouter);
 app.use("/pipelines/:id/subscribers", subscribersRouter);
 app.use(jobsRouter);
-app.listen(port, () => {
+app.listen(8080, () => {
   console.log(`API server listening on port ${port}`);
 });

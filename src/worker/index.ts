@@ -10,6 +10,7 @@ import {
 import { createDeliveryAttempt } from "../db/queries/deliveryAttempts";
 import { runSmartAtsScreener } from "./actions/atsScreener";
 import { runGithubActivityStoryteller } from "./actions/githubStoryteller";
+import { runScheduledProcessor } from "./actions/scheduledProcessor";
 
 const workerName = "job-worker";
 const POLL_MS = 3000;
@@ -21,89 +22,8 @@ function sleep(ms: number): Promise<void> {
 }
 console.log(`${workerName} started`);
 
-function runAction(
-  actionType: string,
-  rawPayload: unknown,
-  actionConfig: Record<string, unknown> | null,
-): unknown {
-  const obj =
-    typeof rawPayload === "object" && rawPayload !== null
-      ? (rawPayload as Record<string, unknown>)
-      : { value: rawPayload };
-
-  switch (actionType) {
-    case "pass":
-      return rawPayload;
-
-    case "json_extract": {
-      const fields = actionConfig?.fields as string[] | undefined;
-      if (!Array.isArray(fields) || fields.length === 0) return rawPayload;
-      const out: Record<string, unknown> = {};
-      for (const key of fields) {
-        if (key in obj) out[key] = obj[key];
-      }
-      return out;
-    }
-
-    case "template": {
-      const template = (actionConfig?.template as string) ?? "{{payload}}";
-      let result = template;
-      for (const [key, value] of Object.entries(obj)) {
-        result = result.replace(
-          new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "g"),
-          String(value),
-        );
-      }
-      return { message: result };
-    }
-
-    case "filter": {
-      const field = actionConfig?.field as string | undefined;
-      const operator = (actionConfig?.operator as string) ?? "eq";
-      const value = actionConfig?.value;
-      if (field === undefined || !(field in obj)) return rawPayload;
-      const actual = obj[field];
-      let pass = false;
-      switch (operator) {
-        case "eq":
-          pass = actual === value;
-          break;
-        case "neq":
-          pass = actual !== value;
-          break;
-        case "gt":
-          pass =
-            typeof actual === "number" &&
-            typeof value === "number" &&
-            actual > value;
-          break;
-        case "gte":
-          pass =
-            typeof actual === "number" &&
-            typeof value === "number" &&
-            actual >= value;
-          break;
-        case "lt":
-          pass =
-            typeof actual === "number" &&
-            typeof value === "number" &&
-            actual < value;
-          break;
-        case "lte":
-          pass =
-            typeof actual === "number" &&
-            typeof value === "number" &&
-            actual <= value;
-          break;
-        default:
-          pass = actual === value;
-      }
-      return pass ? rawPayload : null;
-    }
-
-    default:
-      return rawPayload;
-  }
+function runAction(actionType: string): never {
+  throw new Error(`Unsupported actionType: ${actionType}`);
 }
 
 async function makePostRequest(
@@ -231,13 +151,38 @@ async function processJob(job: Job): Promise<void> {
     shouldDeliverToSubscribers = storyResult.shouldDeliverToSubscribers;
     finalJobStatusIfNoDelivery = storyResult.finalJobStatusIfNoDelivery;
     await updateJobProcessedPayload(job.id, processedPayload);
+  } else if (pipeline.actionType === "SCHEDULED_PROCESSOR") {
+    const alreadyScheduled = job.nextRunAt !== null;
+    const schedResult = await runScheduledProcessor({
+      jobId: job.id,
+      rawPayload: job.rawPayload,
+      processedPayload: job.processedPayload,
+      actionConfig: pipeline.actionConfig,
+      alreadyScheduled,
+    });
+
+    processedPayload = schedResult.processedPayload;
+
+    if (schedResult.kind === "scheduled") {
+      // Job has been re-queued (status=pending, nextRunAt set). Stop processing now.
+      return;
+    }
+    if (schedResult.kind === "error") {
+      await updateJobProcessedPayload(job.id, processedPayload);
+      await setJobStatus(job.id, "failed");
+      return;
+    }
+    // deliver_now falls through to normal subscriber delivery using processedPayload
   } else {
-    processedPayload = runAction(
-      pipeline.actionType,
-      job.rawPayload,
-      pipeline.actionConfig,
-    );
-    await updateJobProcessedPayload(job.id, processedPayload);
+    try {
+      runAction(pipeline.actionType);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      processedPayload = { error: message };
+      await updateJobProcessedPayload(job.id, processedPayload);
+      await setJobStatus(job.id, "failed");
+      return;
+    }
   }
 
   if (processedPayload === null) {

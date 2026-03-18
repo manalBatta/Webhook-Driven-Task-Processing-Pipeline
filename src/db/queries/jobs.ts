@@ -29,6 +29,7 @@ export const claimPendingJobs = async (limit = 5): Promise<Job[]> => {
     WHERE id IN (
       SELECT id FROM jobs
       WHERE status = 'pending'
+        AND (next_run_at IS NULL OR next_run_at <= NOW())
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}
@@ -37,6 +38,13 @@ export const claimPendingJobs = async (limit = 5): Promise<Job[]> => {
   `);
   const rows = (result as any).rows ?? [];
   return rows.map(mapRowToJob);
+};
+
+export const scheduleJob = async (jobId: string, nextRunAt: Date): Promise<void> => {
+  await db
+    .update(jobs)
+    .set({ status: "pending", nextRunAt, updatedAt: new Date() })
+    .where(eq(jobs.id, jobId));
 };
 
 export const getJobById = async (id: string) => {

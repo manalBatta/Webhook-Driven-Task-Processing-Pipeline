@@ -39,16 +39,13 @@ Client → API → Queue (Redis/BullMQ) → Worker → Subscribers
 * CRUD API for pipelines and subscribers
 * Webhook ingestion endpoint per pipeline
 * Background job processing using a queue
-* Multiple processing actions:
-
-  * JSON extraction
-  * Template transformation
-  * Filtering
+* Multiple processing actions (advanced workflows)
 * Delivery to multiple subscribers
 * Retry logic with backoff for failed deliveries
 * Job tracking and delivery attempt history
 * SMART ATS Screener action (Gemini-powered)
 * GitHub Activity Storyteller action (Gemini-powered)
+* Scheduled Processor action (time-based forwarding)
 
 ---
 
@@ -133,6 +130,12 @@ If the subscriber `targetUrl` is a Slack Incoming Webhook URL (starts with `http
 The `text` will be formatted from the generated story (title/summary/highlights).
 
 If the subscriber is not Slack, the worker posts the full `processedPayload` JSON.
+
+---
+
+## Scheduled Processor (Time-Based Actions)
+
+Use this when you want to **delay forwarding** a webhook.\n\n- `actionType`: `SCHEDULED_PROCESSOR`\n- `actionConfig`: `{ \"delaySeconds\": <number> }`\n\n### How it works\n\n1. A webhook is ingested and stored as a job (`status=pending`).\n2. The worker picks it up once, copies `rawPayload` into `processedPayload`, and sets `next_run_at = now + delaySeconds`.\n3. The job is kept in the database until it becomes due.\n4. When `now >= next_run_at`, the worker forwards the stored `processedPayload` to subscribers and marks the job completed.\n\n### Sample curl\n\n1) Create a scheduled pipeline:\n\n```bash\ncurl -X POST http://localhost:3000/pipelines \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"Delay 30 seconds\",\n    \"actionType\": \"SCHEDULED_PROCESSOR\",\n    \"actionConfig\": { \"delaySeconds\": 30 }\n  }'\n```\n\n2) Add a Slack subscriber to this pipeline.\n\n3) Send a webhook:\n\n```bash\ncurl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \\\n  -H \"Content-Type: application/json\" \\\n  -d '{ \"reminder\": \"Send this later\", \"createdAt\": \"2026-03-18T10:00:00Z\" }'\n```\n\nYou should see delivery attempts only after ~30 seconds.\n*** End Patch"} }
 
 ---
 

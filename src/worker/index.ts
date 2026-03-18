@@ -14,6 +14,7 @@ const workerName = "job-worker";
 const POLL_MS = 3000;
 const MAX_DELIVERY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5000;
+const DUMMY_EMAIL_SUBSCRIBER_ID = "00000000-0000-0000-0000-000000000000";
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -214,7 +215,10 @@ async function processJob(job: Job): Promise<void> {
     return;
   }
 
-  const activeSubscribers = subscribers.filter((s) => s.isActive);
+  // Never attempt webhook delivery for the dummy "email" subscriber.
+  const activeSubscribers = subscribers.filter(
+    (s) => s.isActive && s.id !== DUMMY_EMAIL_SUBSCRIBER_ID,
+  );
   const deliveryPromises = activeSubscribers.map((sub) =>
     deliverToSubscriber(sub.targetUrl, processedPayload, job.id, sub.id),
   );

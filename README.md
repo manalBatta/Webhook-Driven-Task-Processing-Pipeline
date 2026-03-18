@@ -221,3 +221,66 @@ This project demonstrates both:
 * A **production-ready scalable solution using BullMQ**
 
 The goal was not just to build a working system, but to understand the underlying mechanics and make informed architectural decisions.
+
+
+Webhook-Driven Task Processing Pipeline: Smart ATS Screener
+This project is a TypeScript-based service
+ designed to ingest, queue, and process webhooks through an asynchronous background worker
+. While the core requirements called for a simple pipeline, this implementation features a Smart ATS (Applicant Tracking System) to demonstrate advanced engineering patterns in distributed systems.
+
+--------------------------------------------------------------------------------
+Architectural Decision: The "Full-Cycle" Workflow
+A pivotal design decision was made to continue the pipeline across two distinct phases rather than stopping after the initial resume scan.
+Why this decision was made:
+From Pipeline to Orchestration: Instead of a simple "pass-through" tool, this decision transforms the service into an Event-Driven Workflow Orchestrator.
+Stateful Processing: By continuing the journey, the system manages a candidate's "State" (e.g., Screened -> Invited -> Evaluated) within the PostgreSQL database (webhook_pipeline)
+.
+Real-World Value: A recruiter doesn't just need to know if a resume is good; they need the candidate to be automatically moved to the next hurdle (the assessment) to save time.
+
+--------------------------------------------------------------------------------
+Detailed Workflow Implementation
+The pipeline is split into two logical phases that function as a single, cohesive automation engine.
+Phase 1: AI-Driven Screening & Invitation
+Trigger: A POST request to the unique pipeline source URL
+.
+Action: The Worker
+ picks up the job and sends the resume text and job requirements to an LLM (OpenAI).
+Branching Logic:
+If Suitable: The worker automatically updates the candidates table and triggers a retry-protected invitation email containing a link to a technical assessment (e.g., Tally.so).
+If Unsuitable: The job is logged as "completed" with a rejection reason, and the workflow terminates to prevent noise.
+Phase 2: Assessment Evaluation & Final Delivery
+Trigger: A second webhook is received when the candidate completes the assessment.
+Action: The worker retrieves the candidate's existing record from the webhook_pipeline database
+ using their email as a unique identifier.
+Threshold Validation: If the assessment score is > 50, the system executes the final Subscriber Delivery
+, notifying the recruiter via their registered URL (e.g., Slack or a CRM).
+
+--------------------------------------------------------------------------------
+Engineering Highlights
+Asynchronous Processing: All heavy lifting (AI analysis and external API calls) is handled by the Worker
+, ensuring the webhook ingestion endpoint remains highly responsive.
+Reliability & Retries: Following core requirements, all external deliveries (Email invitations and Subscriber notifications) include retry logic to handle transient network failures or API downtimes.
+Job Management: The recently enhanced Job Management API
+ allows for real-time tracking of every stage in the ATS lifecycle, providing full visibility into candidate progress and delivery attempts.
+Schema Integrity: Uses Drizzle ORM
+ to maintain a robust relational structure, ensuring that metadata for job configurations and candidate scores are strictly typed and persisted.
+
+--------------------------------------------------------------------------------
+Setup & Usage
+Database Access
+To inspect the pipeline and candidate states directly from your terminal
+:
+psql -U postgres -d webhook_pipeline
+Running the Service
+Install dependencies: npm install
+Start the API and Worker: npm run dev
+Use the Job Management API
+ to query the history of your ATS candidates.
+
+
+to test the ATS screener I :
+1.triggered a webhook with resume text that passed the AI screening
+2.I sent an invetation to the candidate email with a google form assesment url 
+3.the google form assesment triggers a webhook request to the ATS webhook with the candidate email and score. 
+4.I used ngrok to tunnel the request from google forms into localhost:3000 
+5. the Candidate was marked as passed with score >50 and the subscriber was notified with {"phase":"assessment","assessment":{"email":"manal.batta.1234@gmail.com","score":99},"candidate":{"id":"9f62e2fa-d5bf-4942-80bc-0adac0da4c97","email":"manal.batta.1234@gmail.com","name":"John Doe"}} information 

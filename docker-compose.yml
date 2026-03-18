@@ -1,0 +1,54 @@
+
+services:
+  # The PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: webhook_db
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # The API Server (Ingestion & Job Management [1])
+  api:
+    build: .
+    container_name: webhook_api
+    depends_on:
+      - db
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-3000}
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+
+  # The Worker (Processing Actions [1])
+  # Running as a separate service shows "Architectural Power"
+  worker:
+    build: .
+    container_name: webhook_worker
+    depends_on:
+      - db
+    command: ["node", "dist/worker/index.js"]
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+volumes:
+  postgres_data:

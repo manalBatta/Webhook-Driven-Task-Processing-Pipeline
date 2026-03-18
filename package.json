@@ -8,8 +8,8 @@
     "build": "tsc -p .",
     "start:api": "node dist/api/index.js",
     "start:worker": "node dist/worker/index.js",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts"
   },
   "keywords": [],
   "author": "",

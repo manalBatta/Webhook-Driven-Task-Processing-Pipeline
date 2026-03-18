@@ -1,0 +1,66 @@
+name: Docker Compose Smoke Test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: compose-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create CI .env for Compose
+        shell: bash
+        run: |
+          cat > .env <<'EOF'
+          PORT=3000
+          NODE_ENV=production
+          POSTGRES_USER=postgres
+          POSTGRES_PASSWORD=postgres
+          POSTGRES_DB=webhook_pipeline
+          DATABASE_URL=postgresql://postgres:postgres@db:5432/webhook_pipeline
+          GEMINI_API_KEY=dummy
+          GEMINI_MODEL=gemini-2.5-flash
+          RESEND_API_KEY=dummy
+          NGROK_AUTH_TOKEN=
+          EOF
+
+      - name: Build and start services
+        shell: bash
+        run: docker compose up -d --build
+
+      - name: Run database migrations
+        shell: bash
+        run: docker compose exec -T api npm run db:migrate
+
+      - name: Wait for API and smoke test
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if curl -fsS "http://localhost:3000/jobs" > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become ready in time"
+          docker compose ps
+          docker compose logs --tail 200 api worker db
+          exit 1
+
+      - name: Shutdown
+        if: always()
+        shell: bash
+        run: docker compose down -v
+

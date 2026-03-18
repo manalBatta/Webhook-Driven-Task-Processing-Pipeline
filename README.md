@@ -1,7 +1,8 @@
 # To enter the database from terminal
-``bash
+
+```bash
 psql -U postgres -d webhook_pipeline
-``
+```
 
 # Webhook-Driven Task Processing Pipeline
 
@@ -64,9 +65,13 @@ Client → API → Queue (Redis/BullMQ) → Worker → Subscribers
 
 Set these in your `.env` (never commit it):
 
+- **PORT**: API port (default: `3000`)
 - **DATABASE_URL**: PostgreSQL connection string
+- **POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB**: used by Docker Postgres
 - **GEMINI_API_KEY**: Gemini API key used by the `SMART_ATS_SCREENER` action
-- **GEMINI_MODEL** (optional): defaults to `gemini-1.5-flash`
+- **GEMINI_MODEL** (optional): defaults to `gemini-2.5-flash`
+- **RESEND_API_KEY**: Resend API key (email invitations)
+- **NGROK_AUTH_TOKEN** (optional): only if you use ngrok locally
 
 ---
 
@@ -135,7 +140,43 @@ If the subscriber is not Slack, the worker posts the full `processedPayload` JSO
 
 ## Scheduled Processor (Time-Based Actions)
 
-Use this when you want to **delay forwarding** a webhook.\n\n- `actionType`: `SCHEDULED_PROCESSOR`\n- `actionConfig`: `{ \"delaySeconds\": <number> }`\n\n### How it works\n\n1. A webhook is ingested and stored as a job (`status=pending`).\n2. The worker picks it up once, copies `rawPayload` into `processedPayload`, and sets `next_run_at = now + delaySeconds`.\n3. The job is kept in the database until it becomes due.\n4. When `now >= next_run_at`, the worker forwards the stored `processedPayload` to subscribers and marks the job completed.\n\n### Sample curl\n\n1) Create a scheduled pipeline:\n\n```bash\ncurl -X POST http://localhost:3000/pipelines \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"Delay 30 seconds\",\n    \"actionType\": \"SCHEDULED_PROCESSOR\",\n    \"actionConfig\": { \"delaySeconds\": 30 }\n  }'\n```\n\n2) Add a Slack subscriber to this pipeline.\n\n3) Send a webhook:\n\n```bash\ncurl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \\\n  -H \"Content-Type: application/json\" \\\n  -d '{ \"reminder\": \"Send this later\", \"createdAt\": \"2026-03-18T10:00:00Z\" }'\n```\n\nYou should see delivery attempts only after ~30 seconds.\n*** End Patch"} }
+Use this when you want to **delay forwarding** a webhook.
+
+- `actionType`: `SCHEDULED_PROCESSOR`
+- `actionConfig`: `{ "delaySeconds": <number> }`
+
+### How it works
+
+1. A webhook is ingested and stored as a job (`status=pending`).
+2. The worker picks it up once, copies `rawPayload` into `processedPayload`, and sets `next_run_at = now + delaySeconds`.
+3. The job is kept in the database until it becomes due.
+4. When `now >= next_run_at`, the worker forwards the stored `processedPayload` to subscribers and marks the job completed.
+
+### Sample curl
+
+1) Create a scheduled pipeline:
+
+```bash
+curl -X POST http://localhost:3000/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Delay 30 seconds",
+    "actionType": "SCHEDULED_PROCESSOR",
+    "actionConfig": { "delaySeconds": 30 }
+  }'
+```
+
+2) Add a subscriber to this pipeline.
+
+3) Send a webhook:
+
+```bash
+curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
+  -H "Content-Type: application/json" \
+  -d '{ "reminder": "Send this later", "createdAt": "2026-03-18T10:00:00Z" }'
+```
+
+You should see delivery attempts only after ~30 seconds.
 
 ---
 
@@ -229,6 +270,66 @@ This progression reflects how real-world systems evolve:
 
 * Docker
 * Docker Compose
+
+## CI/CD (GitHub Actions)
+
+This repo includes GitHub Actions workflows:
+
+- **`CI`**: installs dependencies (`npm ci`) and builds TypeScript (`npm run build`)
+- **`Docker Compose Smoke Test`**: builds the Docker images, starts `db` + `api` + `worker`, runs DB migrations, then smoke-tests `GET /jobs`
+
+### Docker (recommended)
+
+1) Create your `.env` from the template:
+
+```bash
+copy .env.example .env
+```
+
+Fill the required values in `.env`:
+- `POSTGRES_PASSWORD`
+- `GEMINI_API_KEY`
+- `RESEND_API_KEY`
+
+2) Build and start all services (Postgres + API + Worker):
+
+```bash
+docker compose up -d --build
+```
+
+3) Run DB migrations (first run, and whenever schema changes):
+
+```bash
+docker compose exec -T api npm run db:migrate
+```
+
+4) Open the API:
+- `http://localhost:3000`
+
+### Useful Docker commands
+
+```bash
+docker compose logs -f api
+docker compose logs -f worker
+docker compose down
+```
+
+If you want a clean DB reset (deletes the Postgres volume):
+
+```bash
+docker compose down -v
+```
+
+### Local dev (without Docker for Node)
+
+If you prefer `npm run dev:api`, run only Postgres in Docker:
+
+```bash
+docker compose up -d db
+npm run dev:api
+```
+
+In that case, your local `DATABASE_URL` must use `localhost` (not `db`).
 
 ### Start services
 

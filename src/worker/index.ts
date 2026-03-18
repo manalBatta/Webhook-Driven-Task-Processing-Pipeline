@@ -9,6 +9,7 @@ import {
 } from "../db/queries/jobs";
 import { createDeliveryAttempt } from "../db/queries/deliveryAttempts";
 import { runSmartAtsScreener } from "./actions/atsScreener";
+import { runGithubActivityStoryteller } from "./actions/githubStoryteller";
 
 const workerName = "job-worker";
 const POLL_MS = 3000;
@@ -110,10 +111,13 @@ async function makePostRequest(
   body: unknown,
 ): Promise<{ statusCode: number; success: boolean; errorMessage?: string }> {
   try {
+    const isSlackWebhook = url.startsWith("https://hooks.slack.com/services/");
+    const payload = isSlackWebhook ? { text: formatSlackText(body) } : body;
+
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
     const success = response.status >= 200 && response.status < 400;
     let errorMessage: string | undefined;
@@ -129,6 +133,34 @@ async function makePostRequest(
       success: false,
       errorMessage: message,
     };
+  }
+}
+
+function formatSlackText(body: unknown): string {
+  // Prefer story output if present
+  if (body && typeof body === "object") {
+    const b: any = body;
+    const story = b?.story;
+    if (story?.title && story?.summary) {
+      const highlights = Array.isArray(story.highlights)
+        ? story.highlights.map((h: string) => `• ${h}`).join("\n")
+        : "";
+      const risks = Array.isArray(story.riskNotes) && story.riskNotes.length
+        ? `\n\nRisks/notes:\n${story.riskNotes
+            .map((r: string) => `• ${r}`)
+            .join("\n")}`
+        : "";
+      return `*${story.title}*\n${story.summary}\n\nHighlights:\n${highlights}${risks}`.trim();
+    }
+
+    // Fall back to a generic string
+    if (typeof b.message === "string") return b.message;
+  }
+
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
   }
 }
 
@@ -190,6 +222,15 @@ async function processJob(job: Job): Promise<void> {
     processedPayload = atsResult.processedPayload;
     shouldDeliverToSubscribers = atsResult.shouldDeliverToSubscribers;
     finalJobStatusIfNoDelivery = atsResult.finalJobStatusIfNoDelivery;
+  } else if (pipeline.actionType === "GITHUB_ACTIVITY_STORYTELLER") {
+    const storyResult = await runGithubActivityStoryteller({
+      rawPayload: job.rawPayload,
+      actionConfig: pipeline.actionConfig,
+    });
+    processedPayload = storyResult.processedPayload;
+    shouldDeliverToSubscribers = storyResult.shouldDeliverToSubscribers;
+    finalJobStatusIfNoDelivery = storyResult.finalJobStatusIfNoDelivery;
+    await updateJobProcessedPayload(job.id, processedPayload);
   } else {
     processedPayload = runAction(
       pipeline.actionType,

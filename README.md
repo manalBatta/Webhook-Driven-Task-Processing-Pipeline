@@ -48,6 +48,7 @@ Client → API → Queue (Redis/BullMQ) → Worker → Subscribers
 * Retry logic with backoff for failed deliveries
 * Job tracking and delivery attempt history
 * SMART ATS Screener action (Gemini-powered)
+* GitHub Activity Storyteller action (Gemini-powered)
 
 ---
 
@@ -69,6 +70,69 @@ Set these in your `.env` (never commit it):
 - **DATABASE_URL**: PostgreSQL connection string
 - **GEMINI_API_KEY**: Gemini API key used by the `SMART_ATS_SCREENER` action
 - **GEMINI_MODEL** (optional): defaults to `gemini-1.5-flash`
+
+---
+
+## GitHub Activity Storyteller
+
+Create a pipeline with:
+
+- `actionType`: `GITHUB_ACTIVITY_STORYTELLER`
+- `actionConfig` example:
+
+```json
+{
+  "tone": "friendly",
+  "audience": "non-technical",
+  "maxLength": 500,
+  "includeFiles": true
+}
+```
+
+### actionConfig options
+
+- **tone**: Narrative tone for the story (example: `friendly`, `formal`).
+- **audience**: Intended reader (example: `non-technical`).
+- **maxLength**: Target max character length for the summary section.
+- **includeFiles**:
+  - If `true`, the worker includes a deduplicated, capped list of changed files (from `commits[].added/modified/removed`) in the LLM input.
+  - If `false`, the worker omits file paths and uses only commit messages + repo/branch metadata (cheaper + less noise).
+
+### Sample curl (minimal GitHub push payload)
+
+Replace `<SOURCE_KEY>` with your pipeline's `sourceKey`.
+
+```bash
+curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ref": "refs/heads/main",
+    "repository": { "full_name": "manal/webhook-pipeline" },
+    "pusher": { "name": "manal" },
+    "commits": [
+      {
+        "id": "abc123",
+        "message": "Enhance job management API with new endpoints and delivery attempt history",
+        "author": { "name": "manal" },
+        "added": [],
+        "removed": [],
+        "modified": ["src/api/routes/jobs.ts", "src/worker/index.ts"]
+      }
+    ]
+  }'
+```
+
+### Slack subscriber delivery
+
+If the subscriber `targetUrl` is a Slack Incoming Webhook URL (starts with `https://hooks.slack.com/services/`), the worker will send **exactly** this schema:
+
+```json
+{ "text": "..." }
+```
+
+The `text` will be formatted from the generated story (title/summary/highlights).
+
+If the subscriber is not Slack, the worker posts the full `processedPayload` JSON.
 
 ---
 
@@ -244,7 +308,7 @@ Phase 1: AI-Driven Screening & Invitation
 Trigger: A POST request to the unique pipeline source URL
 .
 Action: The Worker
- picks up the job and sends the resume text and job requirements to an LLM (OpenAI).
+ picks up the job and sends the resume text and job requirements to an LLM (Gemini).
 Branching Logic:
 If Suitable: The worker automatically updates the candidates table and triggers a retry-protected invitation email containing a link to a technical assessment (e.g., Tally.so).
 If Unsuitable: The job is logged as "completed" with a rejection reason, and the workflow terminates to prevent noise.

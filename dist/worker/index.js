@@ -6,94 +6,28 @@ const subscribers_1 = require("../db/queries/subscribers");
 const jobs_1 = require("../db/queries/jobs");
 const deliveryAttempts_1 = require("../db/queries/deliveryAttempts");
 const atsScreener_1 = require("./actions/atsScreener");
+const githubStoryteller_1 = require("./actions/githubStoryteller");
+const scheduledProcessor_1 = require("./actions/scheduledProcessor");
 const workerName = "job-worker";
 const POLL_MS = 3000;
 const MAX_DELIVERY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5000;
+const DUMMY_EMAIL_SUBSCRIBER_ID = "00000000-0000-0000-0000-000000000000";
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 console.log(`${workerName} started`);
-function runAction(actionType, rawPayload, actionConfig) {
-    const obj = typeof rawPayload === "object" && rawPayload !== null
-        ? rawPayload
-        : { value: rawPayload };
-    switch (actionType) {
-        case "pass":
-            return rawPayload;
-        case "json_extract": {
-            const fields = actionConfig?.fields;
-            if (!Array.isArray(fields) || fields.length === 0)
-                return rawPayload;
-            const out = {};
-            for (const key of fields) {
-                if (key in obj)
-                    out[key] = obj[key];
-            }
-            return out;
-        }
-        case "template": {
-            const template = actionConfig?.template ?? "{{payload}}";
-            let result = template;
-            for (const [key, value] of Object.entries(obj)) {
-                result = result.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "g"), String(value));
-            }
-            return { message: result };
-        }
-        case "filter": {
-            const field = actionConfig?.field;
-            const operator = actionConfig?.operator ?? "eq";
-            const value = actionConfig?.value;
-            if (field === undefined || !(field in obj))
-                return rawPayload;
-            const actual = obj[field];
-            let pass = false;
-            switch (operator) {
-                case "eq":
-                    pass = actual === value;
-                    break;
-                case "neq":
-                    pass = actual !== value;
-                    break;
-                case "gt":
-                    pass =
-                        typeof actual === "number" &&
-                            typeof value === "number" &&
-                            actual > value;
-                    break;
-                case "gte":
-                    pass =
-                        typeof actual === "number" &&
-                            typeof value === "number" &&
-                            actual >= value;
-                    break;
-                case "lt":
-                    pass =
-                        typeof actual === "number" &&
-                            typeof value === "number" &&
-                            actual < value;
-                    break;
-                case "lte":
-                    pass =
-                        typeof actual === "number" &&
-                            typeof value === "number" &&
-                            actual <= value;
-                    break;
-                default:
-                    pass = actual === value;
-            }
-            return pass ? rawPayload : null;
-        }
-        default:
-            return rawPayload;
-    }
+function runAction(actionType) {
+    throw new Error(`Unsupported actionType: ${actionType}`);
 }
 async function makePostRequest(url, body) {
     try {
+        const isSlackWebhook = url.startsWith("https://hooks.slack.com/services/");
+        const payload = isSlackWebhook ? { text: formatSlackText(body) } : body;
         const response = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
         const success = response.status >= 200 && response.status < 400;
         let errorMessage;
@@ -110,6 +44,33 @@ async function makePostRequest(url, body) {
             success: false,
             errorMessage: message,
         };
+    }
+}
+function formatSlackText(body) {
+    // Prefer story output if present
+    if (body && typeof body === "object") {
+        const b = body;
+        const story = b?.story;
+        if (story?.title && story?.summary) {
+            const highlights = Array.isArray(story.highlights)
+                ? story.highlights.map((h) => `• ${h}`).join("\n")
+                : "";
+            const risks = Array.isArray(story.riskNotes) && story.riskNotes.length
+                ? `\n\nRisks/notes:\n${story.riskNotes
+                    .map((r) => `• ${r}`)
+                    .join("\n")}`
+                : "";
+            return `*${story.title}*\n${story.summary}\n\nHighlights:\n${highlights}${risks}`.trim();
+        }
+        // Fall back to a generic string
+        if (typeof b.message === "string")
+            return b.message;
+    }
+    try {
+        return JSON.stringify(body);
+    }
+    catch {
+        return String(body);
     }
 }
 async function recordAttempt(jobId, subscriberId, attemptNumber, result) {
@@ -156,9 +117,48 @@ async function processJob(job) {
         shouldDeliverToSubscribers = atsResult.shouldDeliverToSubscribers;
         finalJobStatusIfNoDelivery = atsResult.finalJobStatusIfNoDelivery;
     }
-    else {
-        processedPayload = runAction(pipeline.actionType, job.rawPayload, pipeline.actionConfig);
+    else if (pipeline.actionType === "GITHUB_ACTIVITY_STORYTELLER") {
+        const storyResult = await (0, githubStoryteller_1.runGithubActivityStoryteller)({
+            rawPayload: job.rawPayload,
+            actionConfig: pipeline.actionConfig,
+        });
+        processedPayload = storyResult.processedPayload;
+        shouldDeliverToSubscribers = storyResult.shouldDeliverToSubscribers;
+        finalJobStatusIfNoDelivery = storyResult.finalJobStatusIfNoDelivery;
         await (0, jobs_1.updateJobProcessedPayload)(job.id, processedPayload);
+    }
+    else if (pipeline.actionType === "SCHEDULED_PROCESSOR") {
+        const alreadyScheduled = job.nextRunAt !== null;
+        const schedResult = await (0, scheduledProcessor_1.runScheduledProcessor)({
+            jobId: job.id,
+            rawPayload: job.rawPayload,
+            processedPayload: job.processedPayload,
+            actionConfig: pipeline.actionConfig,
+            alreadyScheduled,
+        });
+        processedPayload = schedResult.processedPayload;
+        if (schedResult.kind === "scheduled") {
+            // Job has been re-queued (status=pending, nextRunAt set). Stop processing now.
+            return;
+        }
+        if (schedResult.kind === "error") {
+            await (0, jobs_1.updateJobProcessedPayload)(job.id, processedPayload);
+            await (0, jobs_1.setJobStatus)(job.id, "failed");
+            return;
+        }
+        // deliver_now falls through to normal subscriber delivery using processedPayload
+    }
+    else {
+        try {
+            runAction(pipeline.actionType);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            processedPayload = { error: message };
+            await (0, jobs_1.updateJobProcessedPayload)(job.id, processedPayload);
+            await (0, jobs_1.setJobStatus)(job.id, "failed");
+            return;
+        }
     }
     if (processedPayload === null) {
         await (0, jobs_1.setJobStatus)(job.id, "completed");
@@ -173,7 +173,8 @@ async function processJob(job) {
         await (0, jobs_1.setJobStatus)(job.id, "completed");
         return;
     }
-    const activeSubscribers = subscribers.filter((s) => s.isActive);
+    // Never attempt webhook delivery for the dummy "email" subscriber.
+    const activeSubscribers = subscribers.filter((s) => s.isActive && s.id !== DUMMY_EMAIL_SUBSCRIBER_ID);
     const deliveryPromises = activeSubscribers.map((sub) => deliverToSubscriber(sub.targetUrl, processedPayload, job.id, sub.id));
     const results = await Promise.all(deliveryPromises);
     const allOk = results.every((ok) => ok);

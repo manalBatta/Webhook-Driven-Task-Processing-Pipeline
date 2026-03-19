@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateJobProcessedPayload = exports.setJobStatus = exports.getAtsJobsByCandidateScore = exports.getJobs = exports.getJobById = exports.claimPendingJobs = exports.createJob = void 0;
+exports.updateJobProcessedPayload = exports.setJobStatus = exports.getAtsJobsByCandidateScore = exports.getJobs = exports.getJobById = exports.scheduleJob = exports.claimPendingJobs = exports.createJob = void 0;
 const drizzle_orm_1 = require("drizzle-orm");
 const connect_1 = require("../connect");
 const schema_1 = require("../schema");
@@ -28,6 +28,7 @@ const claimPendingJobs = async (limit = 5) => {
     WHERE id IN (
       SELECT id FROM jobs
       WHERE status = 'pending'
+        AND (next_run_at IS NULL OR next_run_at <= NOW())
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}
@@ -38,6 +39,13 @@ const claimPendingJobs = async (limit = 5) => {
     return rows.map(mapRowToJob);
 };
 exports.claimPendingJobs = claimPendingJobs;
+const scheduleJob = async (jobId, nextRunAt) => {
+    await connect_1.db
+        .update(schema_1.jobs)
+        .set({ status: "pending", nextRunAt, updatedAt: new Date() })
+        .where((0, drizzle_orm_1.eq)(schema_1.jobs.id, jobId));
+};
+exports.scheduleJob = scheduleJob;
 const getJobById = async (id) => {
     const rows = await connect_1.db.select().from(schema_1.jobs).where((0, drizzle_orm_1.eq)(schema_1.jobs.id, id));
     return rows[0];

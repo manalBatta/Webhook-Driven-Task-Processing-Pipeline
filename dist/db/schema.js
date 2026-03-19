@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deliveryEvents = exports.candidates = exports.deliveryAttempts = exports.jobs = exports.subscribers = exports.pipelines = void 0;
+exports.candidates = exports.deliveryAttempts = exports.jobs = exports.subscribers = exports.pipelines = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 exports.pipelines = (0, pg_core_1.pgTable)("pipelines", {
     id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
@@ -73,27 +73,8 @@ exports.candidates = (0, pg_core_1.pgTable)("candidates", {
     email: (0, pg_core_1.text)("email").notNull(),
     resumeSummary: (0, pg_core_1.text)("resume_summary"),
     aiScore: (0, pg_core_1.integer)("ai_score").notNull(),
-    status: (0, pg_core_1.text)("status").notNull(), // screened | invited | rejected
+    status: (0, pg_core_1.text)("status").notNull(), // INVITED | PASSED | REJECTED
     metadata: (0, pg_core_1.jsonb)("metadata").$type().default(null),
-    createdAt: (0, pg_core_1.timestamp)("created_at", { withTimezone: true })
-        .defaultNow()
-        .notNull(),
-});
-// For non-subscriber deliveries (e.g., email invitations)
-exports.deliveryEvents = (0, pg_core_1.pgTable)("delivery_events", {
-    id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
-    jobId: (0, pg_core_1.uuid)("job_id")
-        .notNull()
-        .references(() => exports.jobs.id, { onDelete: "cascade" }),
-    pipelineId: (0, pg_core_1.uuid)("pipeline_id")
-        .notNull()
-        .references(() => exports.pipelines.id, { onDelete: "cascade" }),
-    channel: (0, pg_core_1.text)("channel").notNull(), // email | other
-    target: (0, pg_core_1.text)("target").notNull(), // email address or URL
-    attemptNumber: (0, pg_core_1.integer)("attempt_number").notNull(),
-    statusCode: (0, pg_core_1.integer)("status_code"),
-    success: (0, pg_core_1.boolean)("success").notNull(),
-    errorMessage: (0, pg_core_1.text)("error_message"),
     createdAt: (0, pg_core_1.timestamp)("created_at", { withTimezone: true })
         .defaultNow()
         .notNull(),

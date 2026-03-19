@@ -15,6 +15,6 @@ exports.app.use(express_1.default.json());
 exports.app.use("/pipelines", pipelines_1.pipelinesRouter);
 exports.app.use("/pipelines/:id/subscribers", subscribers_1.subscribersRouter);
 exports.app.use(jobs_1.jobsRouter);
-exports.app.listen(port, () => {
+exports.app.listen(8080, () => {
     console.log(`API server listening on port ${port}`);
 });

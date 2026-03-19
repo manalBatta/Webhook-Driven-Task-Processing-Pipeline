@@ -1,21 +1,22 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.atsWebhookSchema = void 0;
 exports.runSmartAtsScreener = runSmartAtsScreener;
-const openai_1 = __importDefault(require("openai"));
 const zod_1 = require("zod");
 const connect_1 = require("../../db/connect");
 const schema_1 = require("../../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");
-exports.atsWebhookSchema = zod_1.z.object({
+const generative_ai_1 = require("@google/generative-ai");
+const resend_1 = require("resend");
+const resumeSubmissionSchema = zod_1.z.object({
     resume_text: zod_1.z.string().min(1),
     candidate_info: zod_1.z.object({
         name: zod_1.z.string().min(1),
         email: zod_1.z.string().email(),
     }),
+});
+const assessmentSubmissionSchema = zod_1.z.object({
+    email: zod_1.z.string().email(),
+    score: zod_1.z.number().min(0).max(100),
 });
 const atsAiOutputSchema = zod_1.z.object({
     suitability_score: zod_1.z.number().min(0).max(100),
@@ -26,15 +27,15 @@ const atsAiOutputSchema = zod_1.z.object({
 function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
-function getOpenAIClient() {
-    const apiKey = process.env.OPENAI_API_KEY;
+function getGeminiClient() {
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-        throw new Error("OPENAI_API_KEY is not set");
+        throw new Error("GEMINI_API_KEY is not set");
     }
-    return new openai_1.default({ apiKey });
+    return new generative_ai_1.GoogleGenerativeAI(apiKey);
 }
-async function callOpenAiWithRetry(args) {
-    const client = getOpenAIClient();
+async function callGeminiWithRetry(args) {
+    const client = getGeminiClient();
     const maxAttempts = 3;
     const prompt = [
         "You are an ATS screener. You will evaluate a candidate resume against job requirements.",
@@ -48,26 +49,29 @@ async function callOpenAiWithRetry(args) {
     ].join("\n");
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
+            const model = client.getGenerativeModel({ model: args.model });
             const result = await Promise.race([
-                client.responses.create({
-                    model: args.model,
-                    input: prompt,
+                model.generateContent({
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        // Encourage deterministic, structured output
+                        temperature: 0.2,
+                    },
                 }),
                 (async () => {
                     await sleep(args.timeoutMs);
-                    throw new Error("OpenAI timeout");
+                    throw new Error("Gemini timeout");
                 })(),
             ]);
-            // The node SDK returns a structured response; safest is to extract text.
-            const text = result.output_text;
+            const text = result?.response?.text?.();
             if (!text)
-                throw new Error("OpenAI response had no output_text");
+                throw new Error("Gemini response had no text");
             let parsed;
             try {
                 parsed = JSON.parse(text);
             }
             catch {
-                throw new Error(`OpenAI returned non-JSON: ${text.slice(0, 200)}`);
+                throw new Error(`Gemini returned non-JSON: ${text.slice(0, 200)}`);
             }
             return atsAiOutputSchema.parse(parsed);
         }
@@ -86,111 +90,224 @@ async function callOpenAiWithRetry(args) {
             await sleep(1000 * 2 ** (attempt - 1));
         }
     }
-    throw new Error("Unreachable OpenAI retry loop");
+    throw new Error("Unreachable Gemini retry loop");
 }
 async function sendAssessmentInvitationEmail(args) {
     // Placeholder: integrate SendGrid/Postmark later.
     // Simulate success.
-    void args;
+    // https://docs.google.com/forms/d/e/1FAIpQLSegU3SEcC14KLltYNkHy5zbqcMOgCs99UeghXWUV6EqteBywg/viewform?usp=pp_url&entry.1290314869=12345
+    try {
+        const resendapikey = process.env.RESEND_API_KEY;
+        if (!resendapikey) {
+            throw new Error("RESEND_API_KEY is not set");
+        }
+        const resend = new resend_1.Resend(resendapikey);
+        await resend.emails.send({
+            from: "onboarding@resend.dev",
+            to: "manal.batta.1234@gmail.com",
+            subject: "Hello World",
+            html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>Hello ${args.toName},</h2>
+          
+          <p>You have been invited to complete an assessment for your job application.</p>
+          
+          <p>Please click the link below to start your assessment:</p>
+          
+          <div style="margin: 30px 0;">
+            <a href="${args.invitationLink}" 
+               style="background-color: #4CAF50; color: white; padding: 12px 24px; 
+                      text-decoration: none; border-radius: 4px; display: inline-block;">
+              Start Assessment
+            </a>
+          </div>
+          
+          <p>Or copy and paste this link into your browser:</p>
+          <p>${args.invitationLink}</p>
+          
+          <hr style="border: 1px solid #eee; margin: 20px 0;">
+          
+          <p style="color: #666; font-size: 12px;">
+            This is an automated message, please do not reply to this email.
+          </p>
+        </div>
+      `
+        });
+    }
+    catch (error) {
+        console.error(error);
+        return { success: false, errorMessage: "EMAIL_FAILED" };
+    }
     return { success: true };
 }
-async function logEmailAttempt(args) {
-    await connect_1.db.insert(schema_1.deliveryEvents).values({
-        pipelineId: args.pipelineId,
-        jobId: args.jobId,
-        channel: "email",
-        target: args.targetEmail,
+const DUMMY_EMAIL_SUBSCRIBER_ID = "00000000-0000-0000-0000-000000000000";
+async function logInvitationEmailAttempt(args) {
+    // We log invitation email attempts into delivery_attempts using a dummy subscriber id.
+    await connect_1.db.insert(schema_1.deliveryAttempts).values({
         attemptNumber: args.attemptNumber,
         statusCode: args.statusCode ?? null,
         success: args.success,
         errorMessage: args.errorMessage ?? null,
+        jobId: args.jobId,
+        subscriberId: DUMMY_EMAIL_SUBSCRIBER_ID,
     });
 }
+async function sendInvitationWithRetries(args) {
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const result = await sendAssessmentInvitationEmail(args);
+        await logInvitationEmailAttempt({
+            jobId: args.jobId,
+            attemptNumber: attempt,
+            success: result.success,
+            statusCode: null,
+            errorMessage: result.success
+                ? null
+                : (result.errorMessage ?? "EMAIL_FAILED"),
+        });
+        if (result.success)
+            return result;
+        if (attempt < maxAttempts) {
+            await sleep(5000 * attempt);
+        }
+    }
+    return { success: false, errorMessage: "EMAIL_FAILED" };
+}
 async function runSmartAtsScreener(args) {
-    const parsed = exports.atsWebhookSchema.safeParse(args.rawPayload);
-    if (!parsed.success) {
+    const asResume = resumeSubmissionSchema.safeParse(args.rawPayload);
+    const asAssessment = assessmentSubmissionSchema.safeParse(args.rawPayload);
+    if (asResume.success) {
+        const jobRequirements = args.actionConfig?.job_requirements ?? args.actionConfig ?? {};
+        const ai = await callGeminiWithRetry({
+            model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+            resumeText: asResume.data.resume_text,
+            candidateName: asResume.data.candidate_info.name,
+            candidateEmail: asResume.data.candidate_info.email,
+            jobRequirements,
+            timeoutMs: 60000,
+        });
         const processedPayload = {
-            ats: {
-                error: "INVALID_PAYLOAD",
-                issues: parsed.error.issues,
-            },
+            ats: ai,
+            candidate: asResume.data.candidate_info,
+            phase: "resume",
         };
-        await connect_1.db.update(schema_1.jobs).set({ processedPayload }).where((0, drizzle_orm_1.eq)(schema_1.jobs.id, args.jobId));
+        // Always persist ATS result into job history
+        await connect_1.db
+            .update(schema_1.jobs)
+            .set({ processedPayload })
+            .where((0, drizzle_orm_1.eq)(schema_1.jobs.id, args.jobId));
+        if (ai.decision === "FAIL") {
+            // Rejected at resume stage: stop the flow and do not notify recruiter.
+            await connect_1.db.transaction(async (tx) => {
+                // Upsert-like behavior: create a candidate record tied to this job
+                await tx.insert(schema_1.candidates).values({
+                    pipelineId: args.pipelineId,
+                    jobId: args.jobId,
+                    name: asResume.data.candidate_info.name,
+                    email: asResume.data.candidate_info.email,
+                    resumeSummary: ai.resume_summary ?? null,
+                    aiScore: Math.round(ai.suitability_score),
+                    status: "REJECTED",
+                    metadata: null,
+                });
+            });
+            return {
+                processedPayload,
+                shouldDeliverToSubscribers: false,
+                finalJobStatusIfNoDelivery: "completed",
+            };
+        }
+        // PASS at resume stage: store candidate and invite
+        await connect_1.db.transaction(async (tx) => {
+            await tx.insert(schema_1.candidates).values({
+                pipelineId: args.pipelineId,
+                jobId: args.jobId,
+                name: asResume.data.candidate_info.name,
+                email: asResume.data.candidate_info.email,
+                resumeSummary: ai.resume_summary ?? null,
+                aiScore: Math.round(ai.suitability_score),
+                status: "INVITED",
+                metadata: null,
+            });
+        });
+        const invitationLink = args.actionConfig?.assessment_link ??
+            "https://docs.google.com/forms/d/e/1FAIpQLSegU3SEcC14KLltYNkHy5zbqcMOgCs99UeghXWUV6EqteBywg/viewform?usp=header";
+        const emailResult = await sendInvitationWithRetries({
+            toEmail: asResume.data.candidate_info.email,
+            toName: asResume.data.candidate_info.name,
+            invitationLink,
+            pipelineId: args.pipelineId,
+            jobId: args.jobId,
+        });
+        // Resume phase never notifies recruiter yet. Candidate must submit assessment.
         return {
             processedPayload,
             shouldDeliverToSubscribers: false,
-            finalJobStatusIfNoDelivery: "failed",
+            finalJobStatusIfNoDelivery: emailResult.success ? "completed" : "failed",
         };
     }
-    const jobRequirements = args.actionConfig?.job_requirements ?? args.actionConfig ?? {};
-    const ai = await callOpenAiWithRetry({
-        model: "o4-mini",
-        resumeText: parsed.data.resume_text,
-        candidateName: parsed.data.candidate_info.name,
-        candidateEmail: parsed.data.candidate_info.email,
-        jobRequirements,
-        timeoutMs: 15000,
-    });
-    const processedPayload = {
-        ats: ai,
-        candidate: parsed.data.candidate_info,
-    };
-    if (ai.decision === "FAIL") {
-        // Persist rejection in job history and stop deliveries for this job.
-        await connect_1.db.transaction(async (tx) => {
-            await tx.update(schema_1.jobs).set({ processedPayload }).where((0, drizzle_orm_1.eq)(schema_1.jobs.id, args.jobId));
-        });
+    if (asAssessment.success) {
+        // Phase 2: assessment score submission
+        const email = asAssessment.data.email;
+        const score = asAssessment.data.score;
+        const existing = await connect_1.db
+            .select()
+            .from(schema_1.candidates)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.candidates.pipelineId, args.pipelineId), (0, drizzle_orm_1.eq)(schema_1.candidates.email, email)));
+        const candidate = existing[0];
+        const processedPayload = {
+            phase: "assessment",
+            assessment: { email, score },
+        };
+        await connect_1.db
+            .update(schema_1.jobs)
+            .set({ processedPayload })
+            .where((0, drizzle_orm_1.eq)(schema_1.jobs.id, args.jobId));
+        if (!candidate) {
+            return {
+                processedPayload: {
+                    ...processedPayload,
+                    error: "CANDIDATE_NOT_FOUND",
+                },
+                shouldDeliverToSubscribers: false,
+                finalJobStatusIfNoDelivery: "failed",
+            };
+        }
+        const passed = score > 50;
+        await connect_1.db
+            .update(schema_1.candidates)
+            .set({ status: passed ? "PASSED" : "REJECTED" })
+            .where((0, drizzle_orm_1.eq)(schema_1.candidates.id, candidate.id));
         return {
-            processedPayload,
-            shouldDeliverToSubscribers: false,
+            processedPayload: {
+                ...processedPayload,
+                candidate: {
+                    id: candidate.id,
+                    email: candidate.email,
+                    name: candidate.name,
+                },
+            },
+            shouldDeliverToSubscribers: passed,
             finalJobStatusIfNoDelivery: "completed",
         };
     }
-    // PASS branch: persist candidate + processed payload atomically
-    await connect_1.db.transaction(async (tx) => {
-        await tx.update(schema_1.jobs).set({ processedPayload }).where((0, drizzle_orm_1.eq)(schema_1.jobs.id, args.jobId));
-        await tx.insert(schema_1.candidates).values({
-            pipelineId: args.pipelineId,
-            jobId: args.jobId,
-            name: parsed.data.candidate_info.name,
-            email: parsed.data.candidate_info.email,
-            resumeSummary: ai.resume_summary ?? null,
-            aiScore: Math.round(ai.suitability_score),
-            status: "screened",
-            metadata: null,
-        });
-    });
-    // Email invitation (logged as delivery_events)
-    const emailResult = await sendAssessmentInvitationEmail({
-        toEmail: parsed.data.candidate_info.email,
-        toName: parsed.data.candidate_info.name,
-        pipelineId: args.pipelineId,
-        jobId: args.jobId,
-    });
-    await logEmailAttempt({
-        pipelineId: args.pipelineId,
-        jobId: args.jobId,
-        targetEmail: parsed.data.candidate_info.email,
-        attemptNumber: 1,
-        success: emailResult.success,
-        statusCode: null,
-        errorMessage: emailResult.success ? null : emailResult.errorMessage ?? "EMAIL_FAILED",
-    });
-    if (!emailResult.success) {
-        return {
-            processedPayload,
-            shouldDeliverToSubscribers: false,
-            finalJobStatusIfNoDelivery: "failed",
-        };
-    }
-    // Mark invited (optional, but helps demonstrate branching persistence)
+    // Invalid payload (matches neither phase)
+    const processedPayload = {
+        ats: {
+            error: "INVALID_PAYLOAD",
+            issues: {
+                resume: asResume.success ? null : asResume.error.issues,
+                assessment: asAssessment.success ? null : asAssessment.error.issues,
+            },
+        },
+    };
     await connect_1.db
-        .update(schema_1.candidates)
-        .set({ status: "invited" })
-        .where((0, drizzle_orm_1.eq)(schema_1.candidates.jobId, args.jobId));
+        .update(schema_1.jobs)
+        .set({ processedPayload })
+        .where((0, drizzle_orm_1.eq)(schema_1.jobs.id, args.jobId));
     return {
         processedPayload,
-        shouldDeliverToSubscribers: true,
-        finalJobStatusIfNoDelivery: "completed",
+        shouldDeliverToSubscribers: false,
+        finalJobStatusIfNoDelivery: "failed",
     };
 }

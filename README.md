@@ -22,10 +22,10 @@ The system is designed to handle asynchronous processing, retries, and scalable 
 
 The system consists of:
 
-* **API Service** — Handles pipeline management and webhook ingestion
-* **Queue (BullMQ + Redis)** — Manages job scheduling and processing
-* **Worker** — Processes jobs and delivers results
-* **PostgreSQL** — Stores pipelines, jobs, subscribers, and delivery attempts
+- **API Service** — Handles pipeline management and webhook ingestion
+- **Queue (BullMQ + Redis)** — Manages job scheduling and processing
+- **Worker** — Processes jobs and delivers results
+- **PostgreSQL** — Stores pipelines, jobs, subscribers, and delivery attempts
 
 ```
 Client → API → Queue (Redis/BullMQ) → Worker → Subscribers
@@ -37,16 +37,16 @@ Client → API → Queue (Redis/BullMQ) → Worker → Subscribers
 
 ## Features
 
-* CRUD API for pipelines and subscribers
-* Webhook ingestion endpoint per pipeline
-* Background job processing using a queue
-* Multiple processing actions (advanced workflows)
-* Delivery to multiple subscribers
-* Retry logic with backoff for failed deliveries
-* Job tracking and delivery attempt history
-* SMART ATS Screener action (Gemini-powered)
-* GitHub Activity Storyteller action (Gemini-powered)
-* Scheduled Processor action (time-based forwarding)
+- CRUD API for pipelines and subscribers
+- Webhook ingestion endpoint per pipeline
+- Background job processing using a queue
+- Multiple processing actions (advanced workflows)
+- Delivery to multiple subscribers
+- Retry logic with backoff for failed deliveries
+- Job tracking and delivery attempt history
+- SMART ATS Screener action (Gemini-powered)
+- GitHub Activity Storyteller action (Gemini-powered)
+- Scheduled Processor action (time-based forwarding)
 
 ---
 
@@ -72,6 +72,85 @@ Set these in your `.env` (never commit it):
 - **GEMINI_MODEL** (optional): defaults to `gemini-2.5-flash`
 - **RESEND_API_KEY**: Resend API key (email invitations)
 - **NGROK_AUTH_TOKEN** (optional): only if you use ngrok locally
+
+---
+
+## SMART ATS Screener
+
+AI-powered resume screening with a two-phase flow: (1) resume evaluation → invite to assessment, (2) assessment score → notify recruiter if passed.
+
+### Required: Dummy Subscriber for Email Logging
+
+The ATS flow logs **invitation email attempts** in the `delivery_attempts` table. Because that table requires a `subscriber_id` FK, we use a special "dummy" subscriber row that is never used for webhook delivery—it only exists so we can record email send attempts.
+
+**You must add this dummy subscriber once** (after creating your first ATS pipeline). Replace `<YOUR_ATS_PIPELINE_ID>` with the real `id` from your ATS pipeline:
+
+```sql
+INSERT INTO subscribers (id, pipeline_id, target_url, is_active)
+VALUES (
+  '00000000-0000-0000-0000-000000000000',
+  '<YOUR_ATS_PIPELINE_ID>',
+  'email',
+  true
+)
+ON CONFLICT (id) DO NOTHING;
+```
+
+Run this in `psql` or any SQL client connected to your database. The worker will use this row to log invitation email attempts and will **never** try to POST to the `email` target URL.
+
+### Create a pipeline
+
+- `actionType`: `SMART_ATS_SCREENER`
+- `actionConfig` example:
+
+```json
+{
+  "job_requirements": {
+    "role": "Senior Backend Engineer",
+    "skills": ["TypeScript", "PostgreSQL", "Redis"],
+    "experience_years": 3
+  },
+  "assessment_link": "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform"
+}
+```
+
+- **job_requirements**: Object passed to Gemini for screening (any shape).
+- **assessment_link**: URL for the assessment form (Google Forms, Tally, etc.). If omitted, a default placeholder is used.
+
+### Phase 1: Resume submission
+
+Send a webhook with resume text and candidate info. The worker screens the resume with Gemini and, if **PASS**, emails the candidate an assessment invitation. If **FAIL**, the candidate is marked rejected and no subscriber is notified.
+
+Replace `<SOURCE_KEY>` with your pipeline's `sourceKey`:
+
+```bash
+curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resume_text": "Experienced backend developer with 5 years of TypeScript and PostgreSQL. Led API redesign at Acme Corp.",
+    "candidate_info": {
+      "name": "Jane Doe",
+      "email": "jane@example.com"
+    }
+  }'
+```
+
+### Phase 2: Assessment submission
+
+When the candidate completes the assessment, send a webhook with their email and score. If `score > 50`, the recruiter subscriber is notified.
+
+```bash
+curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "jane@example.com",
+    "score": 85
+  }'
+```
+
+### Subscriber notification
+
+Subscribers are notified only in Phase 2 when the candidate passes (score > 50). The payload includes `phase`, `assessment`, and `candidate` (id, email, name).
 
 ---
 
@@ -154,7 +233,7 @@ Use this when you want to **delay forwarding** a webhook.
 
 ### Sample curl
 
-1) Create a scheduled pipeline:
+1. Create a scheduled pipeline:
 
 ```bash
 curl -X POST http://localhost:3000/pipelines \
@@ -166,9 +245,9 @@ curl -X POST http://localhost:3000/pipelines \
   }'
 ```
 
-2) Add a subscriber to this pipeline.
+2. Add a subscriber to this pipeline.
 
-3) Send a webhook:
+3. Send a webhook:
 
 ```bash
 curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
@@ -188,27 +267,27 @@ The system was initially implemented using a custom queue backed by PostgreSQL.
 
 **How it worked:**
 
-* Jobs were stored in a `jobs` table
-* A worker continuously polled for pending jobs
-* Jobs were claimed using row-level locking (`FOR UPDATE SKIP LOCKED`)
-* Delivery attempts were retried with a fixed delay
+- Jobs were stored in a `jobs` table
+- A worker continuously polled for pending jobs
+- Jobs were claimed using row-level locking (`FOR UPDATE SKIP LOCKED`)
+- Delivery attempts were retried with a fixed delay
 
 **Why this approach was valuable:**
 
-* Helped build a deep understanding of how queues work internally
-* Required handling:
+- Helped build a deep understanding of how queues work internally
+- Required handling:
+  - concurrency control
+  - job state transitions
+  - retry logic
 
-  * concurrency control
-  * job state transitions
-  * retry logic
-* Provided full control over job lifecycle
+- Provided full control over job lifecycle
 
 **Limitations:**
 
-* Inefficient polling (constant DB queries)
-* Increased database load under high throughput
-* More complex to maintain as features grow
-* Not ideal for horizontal scaling
+- Inefficient polling (constant DB queries)
+- Increased database load under high throughput
+- More complex to maintain as features grow
+- Not ideal for horizontal scaling
 
 ---
 
@@ -218,24 +297,24 @@ After validating the custom implementation, the system was migrated to **BullMQ*
 
 **Why BullMQ was chosen:**
 
-* Built-in job locking (prevents duplicate processing)
-* Efficient queueing without polling
-* Native retry and backoff strategies
-* Better performance under high load
-* Designed for distributed workers
+- Built-in job locking (prevents duplicate processing)
+- Efficient queueing without polling
+- Native retry and backoff strategies
+- Better performance under high load
+- Designed for distributed workers
 
 **What BullMQ handles:**
 
-* Job scheduling
-* Concurrency control
-* Retry mechanisms
-* Worker coordination
+- Job scheduling
+- Concurrency control
+- Retry mechanisms
+- Worker coordination
 
 **What remains in PostgreSQL:**
 
-* Pipelines and subscribers
-* Job metadata and processed payloads
-* Delivery attempt history
+- Pipelines and subscribers
+- Job metadata and processed payloads
+- Delivery attempt history
 
 ---
 
@@ -255,8 +334,8 @@ After validating the custom implementation, the system was migrated to **BullMQ*
 
 The project intentionally includes both approaches:
 
-* The **database-backed queue** demonstrates understanding of core concepts
-* The **BullMQ implementation** demonstrates practical engineering decisions
+- The **database-backed queue** demonstrates understanding of core concepts
+- The **BullMQ implementation** demonstrates practical engineering decisions
 
 This progression reflects how real-world systems evolve:
 
@@ -268,8 +347,8 @@ This progression reflects how real-world systems evolve:
 
 ### Prerequisites
 
-* Docker
-* Docker Compose
+- Docker
+- Docker Compose
 
 ## CI/CD (GitHub Actions)
 
@@ -281,30 +360,32 @@ This repo includes GitHub Actions workflows:
 
 ### Docker (recommended)
 
-1) Create your `.env` from the template:
+1. Create your `.env` from the template:
 
 ```bash
 copy .env.example .env
 ```
 
 Fill the required values in `.env`:
+
 - `POSTGRES_PASSWORD`
 - `GEMINI_API_KEY`
 - `RESEND_API_KEY`
 
-2) Build and start all services (Postgres + API + Worker):
+2. Build and start all services (Postgres + API + Worker):
 
 ```bash
 docker compose up -d --build
 ```
 
-3) Run DB migrations (first run, and whenever schema changes):
+3. Run DB migrations (first run, and whenever schema changes):
 
 ```bash
 docker compose exec -T api npm run db:migrate
 ```
 
-4) Open the API:
+4. Open the API:
+
 - `http://localhost:3000`
 
 ### Useful Docker commands
@@ -366,19 +447,19 @@ POST /webhook/:source_path
 
 The system can be tested by:
 
-* Sending webhooks to pipeline endpoints
-* Observing job processing in the worker logs
-* Verifying delivery attempts in the database
-* Using webhook testing tools like Webhook.site
+- Sending webhooks to pipeline endpoints
+- Observing job processing in the worker logs
+- Verifying delivery attempts in the database
+- Using webhook testing tools like Webhook.site
 
 ---
 
 ## Future Improvements
 
-* Dead-letter queue for permanently failed jobs
-* Rate limiting per subscriber
-* Observability (metrics, logging, tracing)
-* Dashboard for monitoring pipelines and jobs
+- Dead-letter queue for permanently failed jobs
+- Rate limiting per subscriber
+- Observability (metrics, logging, tracing)
+- Dashboard for monitoring pipelines and jobs
 
 ---
 
@@ -386,18 +467,18 @@ The system can be tested by:
 
 This project demonstrates both:
 
-* A **from-scratch implementation of a job queue**
-* A **production-ready scalable solution using BullMQ**
+- A **from-scratch implementation of a job queue**
+- A **production-ready scalable solution using BullMQ**
 
 The goal was not just to build a working system, but to understand the underlying mechanics and make informed architectural decisions.
 
-
 Webhook-Driven Task Processing Pipeline: Smart ATS Screener
 This project is a TypeScript-based service
- designed to ingest, queue, and process webhooks through an asynchronous background worker
+designed to ingest, queue, and process webhooks through an asynchronous background worker
 . While the core requirements called for a simple pipeline, this implementation features a Smart ATS (Applicant Tracking System) to demonstrate advanced engineering patterns in distributed systems.
 
---------------------------------------------------------------------------------
+---
+
 Architectural Decision: The "Full-Cycle" Workflow
 A pivotal design decision was made to continue the pipeline across two distinct phases rather than stopping after the initial resume scan.
 Why this decision was made:
@@ -406,35 +487,38 @@ Stateful Processing: By continuing the journey, the system manages a candidate's
 .
 Real-World Value: A recruiter doesn't just need to know if a resume is good; they need the candidate to be automatically moved to the next hurdle (the assessment) to save time.
 
---------------------------------------------------------------------------------
+---
+
 Detailed Workflow Implementation
 The pipeline is split into two logical phases that function as a single, cohesive automation engine.
 Phase 1: AI-Driven Screening & Invitation
 Trigger: A POST request to the unique pipeline source URL
 .
 Action: The Worker
- picks up the job and sends the resume text and job requirements to an LLM (Gemini).
+picks up the job and sends the resume text and job requirements to an LLM (Gemini).
 Branching Logic:
 If Suitable: The worker automatically updates the candidates table and triggers a retry-protected invitation email containing a link to a technical assessment (e.g., Tally.so).
 If Unsuitable: The job is logged as "completed" with a rejection reason, and the workflow terminates to prevent noise.
 Phase 2: Assessment Evaluation & Final Delivery
 Trigger: A second webhook is received when the candidate completes the assessment.
 Action: The worker retrieves the candidate's existing record from the webhook_pipeline database
- using their email as a unique identifier.
+using their email as a unique identifier.
 Threshold Validation: If the assessment score is > 50, the system executes the final Subscriber Delivery
 , notifying the recruiter via their registered URL (e.g., Slack or a CRM).
 
---------------------------------------------------------------------------------
+---
+
 Engineering Highlights
 Asynchronous Processing: All heavy lifting (AI analysis and external API calls) is handled by the Worker
 , ensuring the webhook ingestion endpoint remains highly responsive.
 Reliability & Retries: Following core requirements, all external deliveries (Email invitations and Subscriber notifications) include retry logic to handle transient network failures or API downtimes.
 Job Management: The recently enhanced Job Management API
- allows for real-time tracking of every stage in the ATS lifecycle, providing full visibility into candidate progress and delivery attempts.
+allows for real-time tracking of every stage in the ATS lifecycle, providing full visibility into candidate progress and delivery attempts.
 Schema Integrity: Uses Drizzle ORM
- to maintain a robust relational structure, ensuring that metadata for job configurations and candidate scores are strictly typed and persisted.
+to maintain a robust relational structure, ensuring that metadata for job configurations and candidate scores are strictly typed and persisted.
 
---------------------------------------------------------------------------------
+---
+
 Setup & Usage
 Database Access
 To inspect the pipeline and candidate states directly from your terminal
@@ -444,12 +528,10 @@ Running the Service
 Install dependencies: npm install
 Start the API and Worker: npm run dev
 Use the Job Management API
- to query the history of your ATS candidates.
-
+to query the history of your ATS candidates.
 
 to test the ATS screener I :
 1.triggered a webhook with resume text that passed the AI screening
-2.I sent an invetation to the candidate email with a google form assesment url 
-3.the google form assesment triggers a webhook request to the ATS webhook with the candidate email and score. 
-4.I used ngrok to tunnel the request from google forms into localhost:3000 
-5. the Candidate was marked as passed with score >50 and the subscriber was notified with {"phase":"assessment","assessment":{"email":"manal.batta.1234@gmail.com","score":99},"candidate":{"id":"9f62e2fa-d5bf-4942-80bc-0adac0da4c97","email":"manal.batta.1234@gmail.com","name":"John Doe"}} information 
+2.I sent an invetation to the candidate email with a google form assesment url
+3.the google form assesment triggers a webhook request to the ATS webhook with the candidate email and score.
+4.I used ngrok to tunnel the request from google forms into localhost:3000 5. the Candidate was marked as passed with score >50 and the subscriber was notified with {"phase":"assessment","assessment":{"email":"manal.batta.1234@gmail.com","score":99},"candidate":{"id":"9f62e2fa-d5bf-4942-80bc-0adac0da4c97","email":"manal.batta.1234@gmail.com","name":"John Doe"}} information

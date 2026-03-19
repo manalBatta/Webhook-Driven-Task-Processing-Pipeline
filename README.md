@@ -277,6 +277,7 @@ This repo includes GitHub Actions workflows:
 
 - **`CI`**: installs dependencies (`npm ci`) and builds TypeScript (`npm run build`)
 - **`Docker Compose Smoke Test`**: builds the Docker images, starts `db` + `api` + `worker`, runs DB migrations, then smoke-tests `GET /jobs`
+- **`CD`**: runs on push to `main` — runs CI, then optionally verifies the live Railway API (set repo secret `PRODUCTION_URL` to your API base URL, e.g. `https://your-api.up.railway.app`, to enable)
 
 ### Docker (recommended)
 

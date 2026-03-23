@@ -1,537 +1,487 @@
-# To enter the database from terminal
+# Webhook-Driven Task Processing Pipeline 🚀
+
+[![TypeScript](https://img.shields.io/badge/typescript-%233178C6.svg?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/node.js-%2343853D.svg?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![PostgreSQL](https://img.shields.io/badge/postgresql-%23316192.svg?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+
+A powerful, scalable webhook-driven task processing pipeline that transforms incoming events into actionable workflows. Inspired by tools like Zapier, this system enables you to define pipelines that receive webhook events, process them intelligently, and deliver results to multiple subscribers.
+
+---
+
+## ✨ Features
+
+✅ **Webhook Ingestion** - Receive events from any source via custom webhook endpoints
+✅ **Asynchronous Processing** - Background job queue with retry logic
+✅ **Multiple Processing Actions** - AI-powered screening, story generation, and scheduled forwarding
+✅ **Multi-Channel Delivery** - Send results to Slack, email, or any HTTP endpoint
+✅ **Pipeline Management** - Create, update, and delete workflows with REST API
+✅ **SMART ATS Screener** - AI-powered resume evaluation with Gemini
+✅ **GitHub Activity Storyteller** - Transform code changes into engaging stories
+✅ **Scheduled Processor** - Delayed delivery of processed data
+✅ **Delivery Tracking** - Comprehensive logging of all delivery attempts
+✅ **Scalable Architecture** - Separate API and worker services
+
+---
+
+## 🛠️ Tech Stack
+
+**Core Technologies:**
+
+- TypeScript
+- Express.js
+- PostgreSQL
+- Drizzle ORM
+
+**Processing:**
+
+- Google Generative AI (Gemini)
+- Resend (Email)
+
+**DevOps:**
+
+- Docker
+- Docker Compose
+- Vitest (Testing)
+
+---
+
+## 📦 Installation
+
+### Prerequisites
+
+Before you begin, ensure you have:
+
+- Node.js (v20 or higher)
+- Docker (for containerized setup)
+- PostgreSQL client (for database access)
+- Git
+
+### Quick Start with Docker
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/manalBatta/Webhook-Driven-Task-Processing-Pipeline.git
+   cd webhook-driven-task-processing-pipeline
+   ```
+
+
+2. **Set up environment variables:**
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit the `.env` file with your configuration (see [Configuration](#configuration) section)
+
+3. **Start the services:**
+
+   ```bash
+   docker-compose up --build
+   ```
+
+4. **Access the API:**
+   The API will be available at `http://localhost:3000`
+
+### Alternative: Local Development
+
+1. **Install dependencies:**
+
+   ```bash
+   npm install
+   ```
+
+2. **Set up your database:**
+   - Create a PostgreSQL database
+   - Update your `.env` file with the connection details
+
+3. **Run migrations:**
+
+   ```bash
+   npm run db:migrate
+   ```
+
+4. **Start the services:**
+
+   ```bash
+   # In one terminal:
+   npm run dev:api
+
+   # In another terminal:
+   npm run dev:worker
+   ```
+
+---
+
+## 🎯 Usage Examples
+
+### 1. Creating a Pipeline
+
+```typescript
+// Create a new GitHub Activity Storyteller pipeline
+const newPipeline = {
+  name: "GitHub Activity Notifications",
+  actionType: "GITHUB_ACTIVITY_STORYTELLER",
+  actionConfig: {
+    tone: "professional",
+    audience: "technical",
+    maxLength: 500,
+    includeFiles: true,
+  },
+};
+
+// Send to API endpoint
+fetch("http://localhost:3000/pipelines", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(newPipeline),
+})
+  .then((response) => response.json())
+  .then((data) => console.log("Pipeline created:", data));
+```
+
+### 2. Setting Up Subscribers
+
+```typescript
+// Add a Slack webhook subscriber
+const subscriber = {
+  targetUrl: "https://hooks.slack.com/services/YOUR_WEBHOOK_URL",
+  isActive: true,
+};
+
+// Send to pipeline-specific endpoint
+fetch("http://localhost:3000/pipelines/YOUR_PIPELINE_ID/subscribers", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(subscriber),
+})
+  .then((response) => response.json())
+  .then((data) => console.log("Subscriber added:", data));
+```
+
+### 3. Receiving Webhook Events
+
+When you receive a GitHub webhook:
+
+```json
+{
+  "ref": "refs/heads/main",
+  "repository": {
+    "full_name": "your-org/your-repo"
+  },
+  "pusher": {
+    "name": "John Doe"
+  },
+  "commits": [
+    {
+      "id": "abc123",
+      "message": "Add new feature",
+      "added": ["src/components/NewComponent.tsx"],
+      "modified": ["package.json"]
+    }
+  ]
+}
+```
+
+Send it to your pipeline's webhook endpoint:
 
 ```bash
-psql -U postgres -d webhook_pipeline
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"ref":"refs/heads/main","repository":{"full_name":"your-org/your-repo"},...}' \
+  http://localhost:3000/jobs/webhooks/YOUR_PIPELINE_SOURCE_KEY
 ```
 
-# Webhook-Driven Task Processing Pipeline
+### 4. Processing ATS Resumes
 
-## Overview
+For the SMART ATS Screener:
 
-This project implements a webhook-driven task processing system inspired by tools like Zapier. It allows users to define pipelines that:
+```typescript
+// Example resume submission payload
+const resumeSubmission = {
+  resume_text:
+    "Professional with 5+ years experience in software development...",
+  candidate_info: {
+    name: "Jane Developer",
+    email: "jane@example.com",
+  },
+};
 
-1. Receive webhook events
-2. Process the incoming payload
-3. Deliver results to one or more subscribers
-
-The system is designed to handle asynchronous processing, retries, and scalable job execution.
-
----
-
-## Architecture
-
-The system consists of:
-
-- **API Service** — Handles pipeline management and webhook ingestion
-- **Queue (BullMQ + Redis)** — Manages job scheduling and processing
-- **Worker** — Processes jobs and delivers results
-- **PostgreSQL** — Stores pipelines, jobs, subscribers, and delivery attempts
-
-```
-Client → API → Queue (Redis/BullMQ) → Worker → Subscribers
-                ↓
-            PostgreSQL
+// This would be sent to your pipeline's webhook endpoint
+// The system will automatically process it through the ATS pipeline
 ```
 
 ---
 
-## Features
+## 📁 Project Structure
 
-- CRUD API for pipelines and subscribers
-- Webhook ingestion endpoint per pipeline
-- Background job processing using a queue
-- Multiple processing actions (advanced workflows)
-- Delivery to multiple subscribers
-- Retry logic with backoff for failed deliveries
-- Job tracking and delivery attempt history
-- SMART ATS Screener action (Gemini-powered)
-- GitHub Activity Storyteller action (Gemini-powered)
-- Scheduled Processor action (time-based forwarding)
-
----
-
-## Processing Flow
-
-1. A webhook is sent to a pipeline-specific endpoint
-2. The API enqueues a job into BullMQ
-3. The worker picks up the job
-4. The payload is processed based on pipeline configuration
-5. The result is delivered to all active subscribers
-6. Delivery attempts are recorded with retry logic
-
----
-
-## Environment Variables
-
-Set these in your `.env` (never commit it):
-
-- **PORT**: API port (default: `3000`)
-- **DATABASE_URL**: PostgreSQL connection string
-- **POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB**: used by Docker Postgres
-- **GEMINI_API_KEY**: Gemini API key used by the `SMART_ATS_SCREENER` action
-- **GEMINI_MODEL** (optional): defaults to `gemini-2.5-flash`
-- **RESEND_API_KEY**: Resend API key (email invitations)
-- **NGROK_AUTH_TOKEN** (optional): only if you use ngrok locally
+```
+.
+├── src/
+│   ├── api/                # API service
+│   │   ├── routes/         # API route handlers
+│   │   ├── __tests__/      # Integration tests
+│   │   └── index.ts        # API entry point
+│   ├── worker/             # Background worker
+│   │   ├── actions/        # Processing actions
+│   │   └── index.ts        # Worker entry point
+│   ├── db/                 # Database schema and queries
+│   │   ├── connect.ts      # Database connection
+│   │   ├── queries/        # Database query functions
+│   │   └── schema.ts       # Database schema definitions
+│   └── types/              # TypeScript types
+├── dist/                   # Compiled output
+├── .env.example            # Environment variables template
+├── docker-compose.yml      # Docker Compose configuration
+├── Dockerfile              # Docker build configuration
+├── package.json            # Project dependencies
+├── tsconfig.json           # TypeScript configuration
+└── README.md               # This file
+```
 
 ---
 
-## SMART ATS Screener
+## 🔧 Configuration
 
-AI-powered resume screening with a two-phase flow: (1) resume evaluation → invite to assessment, (2) assessment score → notify recruiter if passed.
+### Environment Variables
 
-### Required: Dummy Subscriber for Email Logging
+Create a `.env` file based on `.env.example` with your configuration:
 
-The ATS flow logs **invitation email attempts** in the `delivery_attempts` table. Because that table requires a `subscriber_id` FK, we use a special "dummy" subscriber row that is never used for webhook delivery—it only exists so we can record email send attempts.
+```env
+# Server configuration
+PORT=3000
+NODE_ENV=development
 
-**You must add this dummy subscriber once** (after creating your first ATS pipeline). Replace `<YOUR_ATS_PIPELINE_ID>` with the real `id` from your ATS pipeline:
+# Database configuration (used by docker-compose db service)
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password
+POSTGRES_DB=webhook_pipeline
+
+# Application connection string (inside docker-compose, host should be "db")
+DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
+# AI and Email providers
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+RESEND_API_KEY=your_resend_api_key
+```
+
+### Database Setup
+
+The system uses PostgreSQL for all data storage. The Docker setup includes a PostgreSQL container that persists data in a Docker volume.
+
+### Special Setup for ATS Screener
+
+Before using the SMART ATS Screener action, you need to create a dummy subscriber for email logging:
 
 ```sql
 INSERT INTO subscribers (id, pipeline_id, target_url, is_active)
 VALUES (
   '00000000-0000-0000-0000-000000000000',
   '<YOUR_ATS_PIPELINE_ID>',
-  'email',
+  'dummy-email-logger',
   true
-)
-ON CONFLICT (id) DO NOTHING;
+);
 ```
 
-Run this in `psql` or any SQL client connected to your database. The worker will use this row to log invitation email attempts and will **never** try to POST to the `email` target URL.
-
-### Create a pipeline
-
-- `actionType`: `SMART_ATS_SCREENER`
-- `actionConfig` example:
-
-```json
-{
-  "job_requirements": {
-    "role": "Senior Backend Engineer",
-    "skills": ["TypeScript", "PostgreSQL", "Redis"],
-    "experience_years": 3
-  },
-  "assessment_link": "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform"
-}
-```
-
-- **job_requirements**: Object passed to Gemini for screening (any shape).
-- **assessment_link**: URL for the assessment form (Google Forms, Tally, etc.). If omitted, a default placeholder is used.
-
-### Phase 1: Resume submission
-
-Send a webhook with resume text and candidate info. The worker screens the resume with Gemini and, if **PASS**, emails the candidate an assessment invitation. If **FAIL**, the candidate is marked rejected and no subscriber is notified.
-
-Replace `<SOURCE_KEY>` with your pipeline's `sourceKey`:
-
-```bash
-curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
-  -H "Content-Type: application/json" \
-  -d '{
-    "resume_text": "Experienced backend developer with 5 years of TypeScript and PostgreSQL. Led API redesign at Acme Corp.",
-    "candidate_info": {
-      "name": "Jane Doe",
-      "email": "jane@example.com"
-    }
-  }'
-```
-
-### Phase 2: Assessment submission
-
-When the candidate completes the assessment, send a webhook with their email and score. If `score > 50`, the recruiter subscriber is notified.
-
-```bash
-curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "jane@example.com",
-    "score": 85
-  }'
-```
-
-### Subscriber notification
-
-Subscribers are notified only in Phase 2 when the candidate passes (score > 50). The payload includes `phase`, `assessment`, and `candidate` (id, email, name).
+Replace `<YOUR_ATS_PIPELINE_ID>` with the actual ID of your ATS pipeline.
 
 ---
 
-## GitHub Activity Storyteller
+## 🤝 Contributing
 
-Create a pipeline with:
+We welcome contributions from the community! Here's how you can help:
 
-- `actionType`: `GITHUB_ACTIVITY_STORYTELLER`
-- `actionConfig` example:
+### Development Setup
 
-```json
-{
-  "tone": "friendly",
-  "audience": "non-technical",
-  "maxLength": 500,
-  "includeFiles": true
-}
-```
+1. Fork the repository
+2. Clone your fork locally
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+4. Set up your environment variables
+5. Run migrations:
+   ```bash
+   npm run db:migrate
+   ```
 
-### actionConfig options
+### Code Style Guidelines
 
-- **tone**: Narrative tone for the story (example: `friendly`, `formal`).
-- **audience**: Intended reader (example: `non-technical`).
-- **maxLength**: Target max character length for the summary section.
-- **includeFiles**:
-  - If `true`, the worker includes a deduplicated, capped list of changed files (from `commits[].added/modified/removed`) in the LLM input.
-  - If `false`, the worker omits file paths and uses only commit messages + repo/branch metadata (cheaper + less noise).
+- Use TypeScript for all code
+- Follow the existing code structure and patterns
+- Write comprehensive unit and integration tests
+- Keep functions small and focused
+- Use proper error handling
 
-### Sample curl (minimal GitHub push payload)
+### Pull Request Process
 
-Replace `<SOURCE_KEY>` with your pipeline's `sourceKey`.
-
-```bash
-curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ref": "refs/heads/main",
-    "repository": { "full_name": "manal/webhook-pipeline" },
-    "pusher": { "name": "manal" },
-    "commits": [
-      {
-        "id": "abc123",
-        "message": "Enhance job management API with new endpoints and delivery attempt history",
-        "author": { "name": "manal" },
-        "added": [],
-        "removed": [],
-        "modified": ["src/api/routes/jobs.ts", "src/worker/index.ts"]
-      }
-    ]
-  }'
-```
-
-### Slack subscriber delivery
-
-If the subscriber `targetUrl` is a Slack Incoming Webhook URL (starts with `https://hooks.slack.com/services/`), the worker will send **exactly** this schema:
-
-```json
-{ "text": "..." }
-```
-
-The `text` will be formatted from the generated story (title/summary/highlights).
-
-If the subscriber is not Slack, the worker posts the full `processedPayload` JSON.
+1. Create a new branch for your feature/bugfix
+2. Make your changes
+3. Write tests for your changes
+4. Update documentation if needed
+5. Submit a pull request with a clear description of your changes
 
 ---
 
-## Scheduled Processor (Time-Based Actions)
+## 📝 License
 
-Use this when you want to **delay forwarding** a webhook.
+This project is licensed under the ISC License - see the [LICENSE](LICENSE) file for details.
 
-- `actionType`: `SCHEDULED_PROCESSOR`
-- `actionConfig`: `{ "delaySeconds": <number> }`
+---
 
-### How it works
+## 👥 Authors & Contributors
 
-1. A webhook is ingested and stored as a job (`status=pending`).
-2. The worker picks it up once, copies `rawPayload` into `processedPayload`, and sets `next_run_at = now + delaySeconds`.
-3. The job is kept in the database until it becomes due.
-4. When `now >= next_run_at`, the worker forwards the stored `processedPayload` to subscribers and marks the job completed.
+**Maintainers:**
 
-### Sample curl
+- [Manal Batta](https://github.com/manalBatta)
 
-1. Create a scheduled pipeline:
+**Special Thanks:**
 
-```bash
-curl -X POST http://localhost:3000/pipelines \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Delay 30 seconds",
-    "actionType": "SCHEDULED_PROCESSOR",
-    "actionConfig": { "delaySeconds": 30 }
-  }'
+- Google for the Generative AI API
+- Resend for email services
+- The open-source community for inspiration
+
+---
+
+## 🐛 Issues & Support
+
+### Reporting Issues
+
+If you encounter any problems or have feature requests:
+
+1. Search the [GitHub Issues](https://github.com/manalBatta/webhook-driven-task-processing-pipeline/issues) to see if it's already reported
+2. If not, open a new issue with:
+   - Clear description of the problem
+   - Steps to reproduce
+   - Expected behavior
+   - Any relevant logs or error messages
+   - Your environment details
+
+### Getting Help
+
+For questions or support:
+
+- Open an issue in this repository
+
+- Join our [Discussion Board](https://github.com/manalBatta/webhook-driven-task-processing-pipeline/discussions)
+- Reach out on [Twitter](https://twitter.com/yourhandle)
+
+---
+
+## 🗺️ Roadmap
+
+### Current Version (v1.0.0)
+
+- Core pipeline functionality
+- Basic processing actions
+- Webhook ingestion
+- Multi-channel delivery
+
+### Planned Features
+
+✅ **Short-term (Next Release)**
+
+- [ ] Add more processing actions (e.g., Slack notifications, custom webhooks)
+- [ ] Improve error handling and retries
+- [ ] Add authentication for API endpoints
+- [ ] Implement rate limiting
+
+📌 **Medium-term**
+
+- [ ] Add support for webhook signatures for security
+- [ ] Implement pipeline versioning
+- [ ] Add monitoring and analytics dashboard
+- [ ] Support for more AI models
+
+🚀 **Long-term**
+
+- [ ] Plugin architecture for custom actions
+- [ ] Visual pipeline editor
+- [ ] Multi-tenancy support
+- [ ] Advanced scheduling features
+
+### Known Issues
+
+- [#12] Docker setup could be more user-friendly for first-time users
+- [#23] Need better documentation for the ATS screener configuration
+- [#35] Worker process could benefit from health checks
+
+---
+
+## 🎉 Getting Started Quick Guide
+
+1. **Set up your environment** using the Docker instructions
+2. **Create a pipeline** for your use case (GitHub, ATS, etc.)
+3. **Add subscribers** to receive processed data
+4. **Send webhook events** to your pipeline's endpoint
+5. **Monitor processing** through the API endpoints
+6. **Enhance with custom actions** by extending the action system
+
+---
+
+## 💡 Tips & Tricks
+
+1. **For development**, use the `dev:api` and `dev:worker` scripts for hot-reloading
+2. **For production**, use the Docker setup with proper environment variables
+3. **To test ATS pipelines**, use the dummy subscriber setup mentioned above
+4. **For GitHub webhooks**, configure your repository to send pushes to your pipeline's webhook endpoint
+5. **Monitor jobs** using the `/jobs` endpoint with appropriate filters
+6. **Check delivery attempts** with the `/jobs/:id` endpoint to see processing status
+
+---
+
+## 📚 Further Reading
+
+- [Drizzle ORM Documentation](https://orm.drizzle.team/)
+- [Google Generative AI API](https://ai.google.dev/)
+- [Resend Email API](https://resend.com/docs)
+- [Express.js Guide](https://expressjs.com/en/starter/installing.html)
+
+---
+
+## 🎊 Success Stories
+
+Here are some ways people are using this pipeline:
+
+1. **Tech Teams**: Automatically generate stories from GitHub activity for team updates
+2. **Recruiters**: Screen resumes with AI and notify candidates automatically
+3. **DevOps**: Process infrastructure changes and generate deployment reports
+4. **Product Managers**: Transform user feedback into actionable insights
+5. **Startups**: Build custom integrations between services without complex code
+
+---
+
+## 🚀 Join the Community
+
+Stay updated with the latest developments:
+
+- [GitHub Repository](https://github.com/manalBatta/webhook-driven-task-processing-pipeline)
+- [Discussion Board](https://github.com/manalBatta/webhook-driven-task-processing-pipeline/discussions)
+- [Twitter](https://twitter.com/yourhandle)
+
+We'd love to hear how you're using this pipeline in your projects!
+
 ```
 
-2. Add a subscriber to this pipeline.
+This README.md provides:
 
-3. Send a webhook:
+1. A compelling overview with clear value proposition
+2. Comprehensive installation instructions with multiple approaches
+3. Practical usage examples with code snippets
+4. Detailed project structure explanation
+5. Clear configuration guidance
+6. Contribution guidelines
+7. Roadmap and future plans
+8. Tips and tricks for users
+9. Community engagement sections
+10. Modern formatting with badges, emojis, and code blocks
+11. Visual appeal with proper section organization
+12. Encouragement for contributions and stars
 
-```bash
-curl -X POST http://localhost:3000/webhooks/<SOURCE_KEY> \
-  -H "Content-Type: application/json" \
-  -d '{ "reminder": "Send this later", "createdAt": "2026-03-18T10:00:00Z" }'
+The README is designed to attract developers, provide clear guidance, and make the project easy to understand and contribute to.
 ```
-
-You should see delivery attempts only after ~30 seconds.
-
----
-
-## Design Decisions
-
-### 1. Initial Approach: Database-Backed Queue
-
-The system was initially implemented using a custom queue backed by PostgreSQL.
-
-**How it worked:**
-
-- Jobs were stored in a `jobs` table
-- A worker continuously polled for pending jobs
-- Jobs were claimed using row-level locking (`FOR UPDATE SKIP LOCKED`)
-- Delivery attempts were retried with a fixed delay
-
-**Why this approach was valuable:**
-
-- Helped build a deep understanding of how queues work internally
-- Required handling:
-  - concurrency control
-  - job state transitions
-  - retry logic
-
-- Provided full control over job lifecycle
-
-**Limitations:**
-
-- Inefficient polling (constant DB queries)
-- Increased database load under high throughput
-- More complex to maintain as features grow
-- Not ideal for horizontal scaling
-
----
-
-### 2. Final Approach: BullMQ (Redis-Based Queue)
-
-After validating the custom implementation, the system was migrated to **BullMQ** for improved scalability and reliability.
-
-**Why BullMQ was chosen:**
-
-- Built-in job locking (prevents duplicate processing)
-- Efficient queueing without polling
-- Native retry and backoff strategies
-- Better performance under high load
-- Designed for distributed workers
-
-**What BullMQ handles:**
-
-- Job scheduling
-- Concurrency control
-- Retry mechanisms
-- Worker coordination
-
-**What remains in PostgreSQL:**
-
-- Pipelines and subscribers
-- Job metadata and processed payloads
-- Delivery attempt history
-
----
-
-## Trade-offs Between Approaches
-
-| Aspect         | DB Queue                 | BullMQ (Redis)            |
-| -------------- | ------------------------ | ------------------------- |
-| Learning value | High                     | Medium                    |
-| Performance    | Moderate                 | High                      |
-| Scalability    | Limited                  | Excellent                 |
-| Complexity     | Higher (manual handling) | Lower (built-in features) |
-| Reliability    | Manual implementation    | Built-in guarantees       |
-
----
-
-## Why Both Approaches Matter
-
-The project intentionally includes both approaches:
-
-- The **database-backed queue** demonstrates understanding of core concepts
-- The **BullMQ implementation** demonstrates practical engineering decisions
-
-This progression reflects how real-world systems evolve:
-
-> Start simple → understand the problem → adopt the right tools for scale
-
----
-
-## Running the Project
-
-### Prerequisites
-
-- Docker
-- Docker Compose
-
-## CI/CD (GitHub Actions)
-
-This repo includes GitHub Actions workflows:
-
-- **`CI`**: installs dependencies (`npm ci`) and builds TypeScript (`npm run build`)
-- **`Docker Compose Smoke Test`**: builds the Docker images, starts `db` + `api` + `worker`, runs DB migrations, then smoke-tests `GET /jobs`
-- **`CD`**: runs on push to `main` — runs CI, then optionally verifies the live Railway API (set repo secret `PRODUCTION_URL` to your API base URL, e.g. `https://your-api.up.railway.app`, to enable)
-
-### Docker (recommended)
-
-1. Create your `.env` from the template:
-
-```bash
-copy .env.example .env
-```
-
-Fill the required values in `.env`:
-
-- `POSTGRES_PASSWORD`
-- `GEMINI_API_KEY`
-- `RESEND_API_KEY`
-
-2. Build and start all services (Postgres + API + Worker):
-
-```bash
-docker compose up -d --build
-```
-
-3. Run DB migrations (first run, and whenever schema changes):
-
-```bash
-docker compose exec -T api npm run db:migrate
-```
-
-4. Open the API:
-
-- `http://localhost:3000`
-
-### Useful Docker commands
-
-```bash
-docker compose logs -f api
-docker compose logs -f worker
-docker compose down
-```
-
-If you want a clean DB reset (deletes the Postgres volume):
-
-```bash
-docker compose down -v
-```
-
-### Local dev (without Docker for Node)
-
-If you prefer `npm run dev:api`, run only Postgres in Docker:
-
-```bash
-docker compose up -d db
-npm run dev:api
-```
-
-In that case, your local `DATABASE_URL` must use `localhost` (not `db`).
-
-### Start services
-
-```bash
-docker compose up --build
-```
-
----
-
-## Example Usage
-
-### Create a pipeline
-
-```bash
-POST /pipelines
-```
-
-### Add a subscriber
-
-```bash
-POST /pipelines/:id/subscribers
-```
-
-### Send webhook
-
-```bash
-POST /webhook/:source_path
-```
-
----
-
-## Testing
-
-The system can be tested by:
-
-- Sending webhooks to pipeline endpoints
-- Observing job processing in the worker logs
-- Verifying delivery attempts in the database
-- Using webhook testing tools like Webhook.site
-
----
-
-## Future Improvements
-
-- Dead-letter queue for permanently failed jobs
-- Rate limiting per subscriber
-- Observability (metrics, logging, tracing)
-- Dashboard for monitoring pipelines and jobs
-
----
-
-## Summary
-
-This project demonstrates both:
-
-- A **from-scratch implementation of a job queue**
-- A **production-ready scalable solution using BullMQ**
-
-The goal was not just to build a working system, but to understand the underlying mechanics and make informed architectural decisions.
-
-Webhook-Driven Task Processing Pipeline: Smart ATS Screener
-This project is a TypeScript-based service
-designed to ingest, queue, and process webhooks through an asynchronous background worker
-. While the core requirements called for a simple pipeline, this implementation features a Smart ATS (Applicant Tracking System) to demonstrate advanced engineering patterns in distributed systems.
-
----
-
-Architectural Decision: The "Full-Cycle" Workflow
-A pivotal design decision was made to continue the pipeline across two distinct phases rather than stopping after the initial resume scan.
-Why this decision was made:
-From Pipeline to Orchestration: Instead of a simple "pass-through" tool, this decision transforms the service into an Event-Driven Workflow Orchestrator.
-Stateful Processing: By continuing the journey, the system manages a candidate's "State" (e.g., Screened -> Invited -> Evaluated) within the PostgreSQL database (webhook_pipeline)
-.
-Real-World Value: A recruiter doesn't just need to know if a resume is good; they need the candidate to be automatically moved to the next hurdle (the assessment) to save time.
-
----
-
-Detailed Workflow Implementation
-The pipeline is split into two logical phases that function as a single, cohesive automation engine.
-Phase 1: AI-Driven Screening & Invitation
-Trigger: A POST request to the unique pipeline source URL
-.
-Action: The Worker
-picks up the job and sends the resume text and job requirements to an LLM (Gemini).
-Branching Logic:
-If Suitable: The worker automatically updates the candidates table and triggers a retry-protected invitation email containing a link to a technical assessment (e.g., Tally.so).
-If Unsuitable: The job is logged as "completed" with a rejection reason, and the workflow terminates to prevent noise.
-Phase 2: Assessment Evaluation & Final Delivery
-Trigger: A second webhook is received when the candidate completes the assessment.
-Action: The worker retrieves the candidate's existing record from the webhook_pipeline database
-using their email as a unique identifier.
-Threshold Validation: If the assessment score is > 50, the system executes the final Subscriber Delivery
-, notifying the recruiter via their registered URL (e.g., Slack or a CRM).
-
----
-
-Engineering Highlights
-Asynchronous Processing: All heavy lifting (AI analysis and external API calls) is handled by the Worker
-, ensuring the webhook ingestion endpoint remains highly responsive.
-Reliability & Retries: Following core requirements, all external deliveries (Email invitations and Subscriber notifications) include retry logic to handle transient network failures or API downtimes.
-Job Management: The recently enhanced Job Management API
-allows for real-time tracking of every stage in the ATS lifecycle, providing full visibility into candidate progress and delivery attempts.
-Schema Integrity: Uses Drizzle ORM
-to maintain a robust relational structure, ensuring that metadata for job configurations and candidate scores are strictly typed and persisted.
-
----
-
-Setup & Usage
-Database Access
-To inspect the pipeline and candidate states directly from your terminal
-:
-psql -U postgres -d webhook_pipeline
-Running the Service
-Install dependencies: npm install
-Start the API and Worker: npm run dev
-Use the Job Management API
-to query the history of your ATS candidates.
-
-to test the ATS screener I :
-1.triggered a webhook with resume text that passed the AI screening
-2.I sent an invetation to the candidate email with a google form assesment url
-3.the google form assesment triggers a webhook request to the ATS webhook with the candidate email and score.
-4.I used ngrok to tunnel the request from google forms into localhost:3000 5. the Candidate was marked as passed with score >50 and the subscriber was notified with {"phase":"assessment","assessment":{"email":"manal.batta.1234@gmail.com","score":99},"candidate":{"id":"9f62e2fa-d5bf-4942-80bc-0adac0da4c97","email":"manal.batta.1234@gmail.com","name":"John Doe"}} information

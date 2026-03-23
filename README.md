@@ -72,7 +72,7 @@ Before you begin, ensure you have:
    cp .env.example .env
    ```
 
-   Edit the `.env` file with your configuration (see [Configuration](#configuration) section)
+   Edit the `.env` file with your configuration see Configuration section
 
 3. **Start the services:**
 
@@ -292,48 +292,6 @@ Replace `<YOUR_ATS_PIPELINE_ID>` with the actual ID of your ATS pipeline.
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions from the community! Here's how you can help:
-
-### Development Setup
-
-1. Fork the repository
-2. Clone your fork locally
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Set up your environment variables
-5. Run migrations:
-   ```bash
-   npm run db:migrate
-   ```
-
-### Code Style Guidelines
-
-- Use TypeScript for all code
-- Follow the existing code structure and patterns
-- Write comprehensive unit and integration tests
-- Keep functions small and focused
-- Use proper error handling
-
-### Pull Request Process
-
-1. Create a new branch for your feature/bugfix
-2. Make your changes
-3. Write tests for your changes
-4. Update documentation if needed
-5. Submit a pull request with a clear description of your changes
-
----
-
-## 📝 License
-
-This project is licensed under the ISC License - see the [LICENSE](LICENSE) file for details.
-
----
-
 ## 👥 Authors & Contributors
 
 **Maintainers:**
@@ -341,10 +299,10 @@ This project is licensed under the ISC License - see the [LICENSE](LICENSE) file
 - [Manal Batta](https://github.com/manalBatta)
 
 **Special Thanks:**
-
-- Google for the Generative AI API
-- Resend for email services
+- Foothill Techonology Solutions
 - The open-source community for inspiration
+- Resend for email services
+
 
 ---
 
@@ -362,14 +320,6 @@ If you encounter any problems or have feature requests:
    - Any relevant logs or error messages
    - Your environment details
 
-### Getting Help
-
-For questions or support:
-
-- Open an issue in this repository
-
-- Join our [Discussion Board](https://github.com/manalBatta/webhook-driven-task-processing-pipeline/discussions)
-- Reach out on [Twitter](https://twitter.com/yourhandle)
 
 ---
 
@@ -394,22 +344,10 @@ For questions or support:
 📌 **Medium-term**
 
 - [ ] Add support for webhook signatures for security
-- [ ] Implement pipeline versioning
 - [ ] Add monitoring and analytics dashboard
 - [ ] Support for more AI models
 
-🚀 **Long-term**
 
-- [ ] Plugin architecture for custom actions
-- [ ] Visual pipeline editor
-- [ ] Multi-tenancy support
-- [ ] Advanced scheduling features
-
-### Known Issues
-
-- [#12] Docker setup could be more user-friendly for first-time users
-- [#23] Need better documentation for the ATS screener configuration
-- [#35] Worker process could benefit from health checks
 
 ---
 
@@ -424,37 +362,6 @@ For questions or support:
 
 ---
 
-## 💡 Tips & Tricks
-
-1. **For development**, use the `dev:api` and `dev:worker` scripts for hot-reloading
-2. **For production**, use the Docker setup with proper environment variables
-3. **To test ATS pipelines**, use the dummy subscriber setup mentioned above
-4. **For GitHub webhooks**, configure your repository to send pushes to your pipeline's webhook endpoint
-5. **Monitor jobs** using the `/jobs` endpoint with appropriate filters
-6. **Check delivery attempts** with the `/jobs/:id` endpoint to see processing status
-
----
-
-## 📚 Further Reading
-
-- [Drizzle ORM Documentation](https://orm.drizzle.team/)
-- [Google Generative AI API](https://ai.google.dev/)
-- [Resend Email API](https://resend.com/docs)
-- [Express.js Guide](https://expressjs.com/en/starter/installing.html)
-
----
-
-## 🎊 Success Stories
-
-Here are some ways people are using this pipeline:
-
-1. **Tech Teams**: Automatically generate stories from GitHub activity for team updates
-2. **Recruiters**: Screen resumes with AI and notify candidates automatically
-3. **DevOps**: Process infrastructure changes and generate deployment reports
-4. **Product Managers**: Transform user feedback into actionable insights
-5. **Startups**: Build custom integrations between services without complex code
-
----
 
 ## 🚀 Join the Community
 
@@ -462,26 +369,6 @@ Stay updated with the latest developments:
 
 - [GitHub Repository](https://github.com/manalBatta/webhook-driven-task-processing-pipeline)
 - [Discussion Board](https://github.com/manalBatta/webhook-driven-task-processing-pipeline/discussions)
-- [Twitter](https://twitter.com/yourhandle)
 
-We'd love to hear how you're using this pipeline in your projects!
+I'd love to hear how you're using this pipeline in your projects!
 
-```
-
-This README.md provides:
-
-1. A compelling overview with clear value proposition
-2. Comprehensive installation instructions with multiple approaches
-3. Practical usage examples with code snippets
-4. Detailed project structure explanation
-5. Clear configuration guidance
-6. Contribution guidelines
-7. Roadmap and future plans
-8. Tips and tricks for users
-9. Community engagement sections
-10. Modern formatting with badges, emojis, and code blocks
-11. Visual appeal with proper section organization
-12. Encouragement for contributions and stars
-
-The README is designed to attract developers, provide clear guidance, and make the project easy to understand and contribute to.
-```

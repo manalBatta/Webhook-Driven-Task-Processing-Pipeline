@@ -45,11 +45,34 @@ jobs:
           RESEND_API_KEY=test-resend-key
           EOF
 
-      - name: Start database and API
+      - name: Start database
         run: |
-          docker compose -f docker-compose.yml up -d db api
-          echo "Waiting for API to start and run migrations..."
-          sleep 15
+          docker compose -f docker-compose.yml up -d db
+          echo "Waiting for PostgreSQL to be ready..."
+
+      - name: Wait for database to be ready
+        run: |
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose exec -T db pg_isready -U postgres > /dev/null 2>&1; then
+              echo "✓ PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($timeout seconds remaining)"
+            sleep 2
+            timeout=$((timeout - 2))
+          done
+          if [ $timeout -le 0 ]; then
+            echo "✗ PostgreSQL failed to start"
+            docker compose logs db
+            exit 1
+          fi
+
+      - name: Start API
+        run: |
+          docker compose -f docker-compose.yml up -d api
+          echo "API started, waiting for migrations..."
+          sleep 10
 
       - name: Wait for API to be healthy
         run: |

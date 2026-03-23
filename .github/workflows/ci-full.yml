@@ -45,27 +45,34 @@ jobs:
           RESEND_API_KEY=test-resend-key
           EOF
 
-      - name: Start services with Docker Compose
+      - name: Start database and API
         run: |
-          docker compose -f docker-compose.yml up -d db api worker
-          echo "Waiting for services to start..."
-          sleep 10
+          docker compose -f docker-compose.yml up -d db api
+          echo "Waiting for API to start and run migrations..."
+          sleep 15
 
       - name: Wait for API to be healthy
         run: |
           timeout=60
           while [ $timeout -gt 0 ]; do
-            if docker compose exec -T api curl -f http://localhost:3000/jobs > /dev/null 2>&1; then
-              echo "✓ API is healthy"
-              exit 0
+            if curl -f http://localhost:3000/jobs > /dev/null 2>&1; then
+              echo "✓ API is healthy and migrations completed"
+              break
             fi
             echo "Waiting for API... ($timeout seconds remaining)"
             sleep 2
             timeout=$((timeout - 2))
           done
-          echo "✗ API failed to start"
-          docker-compose logs api
-          exit 1
+          if [ $timeout -le 0 ]; then
+            echo "✗ API failed to start"
+            docker compose logs api
+            exit 1
+          fi
+
+      - name: Start worker service
+        run: |
+          docker compose -f docker-compose.yml up -d worker
+          echo "Worker started"
 
       - name: Run integration tests
         run: npm run test:integration

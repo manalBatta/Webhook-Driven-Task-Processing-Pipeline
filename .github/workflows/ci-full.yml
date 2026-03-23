@@ -1,0 +1,87 @@
+name: CI - Full Integration
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+concurrency:
+  group: ci-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration-tests:
+    name: Integration Tests with Docker Compose
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (tsc)
+        run: npm run build
+
+      - name: Create test .env file
+        run: |
+          cat > .env << EOF
+          NODE_ENV=test
+          PORT=3000
+          POSTGRES_USER=postgres
+          POSTGRES_PASSWORD=postgres
+          POSTGRES_DB=webhook_test
+          DATABASE_URL=postgresql://postgres:postgres@db:5432/webhook_test
+          GEMINI_API_KEY=test-dummy-key
+          GEMINI_MODEL=gemini-2.5-flash
+          RESEND_API_KEY=test-resend-key
+          EOF
+
+      - name: Start services with Docker Compose
+        run: |
+          docker-compose -f docker-compose.yml up -d db api worker
+          echo "Waiting for services to start..."
+          sleep 10
+
+      - name: Wait for API to be healthy
+        run: |
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker-compose exec -T api curl -f http://localhost:3000/jobs > /dev/null 2>&1; then
+              echo "✓ API is healthy"
+              exit 0
+            fi
+            echo "Waiting for API... ($timeout seconds remaining)"
+            sleep 2
+            timeout=$((timeout - 2))
+          done
+          echo "✗ API failed to start"
+          docker-compose logs api
+          exit 1
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          API_URL: http://localhost:3000
+
+      - name: Print service logs on failure
+        if: failure()
+        run: |
+          echo "=== API Logs ==="
+          docker-compose logs api
+          echo "=== Worker Logs ==="
+          docker-compose logs worker
+          echo "=== Database Logs ==="
+          docker-compose logs db
+
+      - name: Cleanup Docker Compose
+        if: always()
+        run: docker-compose down -v

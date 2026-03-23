@@ -93,9 +93,6 @@ async function callGeminiWithRetry(args) {
     throw new Error("Unreachable Gemini retry loop");
 }
 async function sendAssessmentInvitationEmail(args) {
-    // Placeholder: integrate SendGrid/Postmark later.
-    // Simulate success.
-    // https://docs.google.com/forms/d/e/1FAIpQLSegU3SEcC14KLltYNkHy5zbqcMOgCs99UeghXWUV6EqteBywg/viewform?usp=pp_url&entry.1290314869=12345
     try {
         const resendapikey = process.env.RESEND_API_KEY;
         if (!resendapikey) {
@@ -104,8 +101,8 @@ async function sendAssessmentInvitationEmail(args) {
         const resend = new resend_1.Resend(resendapikey);
         await resend.emails.send({
             from: "onboarding@resend.dev",
-            to: "manal.batta.1234@gmail.com",
-            subject: "Hello World",
+            to: args.toEmail,
+            subject: "Assessment Invitation",
             html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2>Hello ${args.toName},</h2>
@@ -131,7 +128,7 @@ async function sendAssessmentInvitationEmail(args) {
             This is an automated message, please do not reply to this email.
           </p>
         </div>
-      `
+      `,
         });
     }
     catch (error) {

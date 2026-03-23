@@ -12,14 +12,23 @@ A powerful, scalable webhook-driven task processing pipeline that transforms inc
 ## ✨ Features
 
 ✅ **Webhook Ingestion** - Receive events from any source via custom webhook endpoints
+
 ✅ **Asynchronous Processing** - Background job queue with retry logic
+
 ✅ **Multiple Processing Actions** - AI-powered screening, story generation, and scheduled forwarding
+
 ✅ **Multi-Channel Delivery** - Send results to Slack, email, or any HTTP endpoint
+
 ✅ **Pipeline Management** - Create, update, and delete workflows with REST API
+
 ✅ **SMART ATS Screener** - AI-powered resume evaluation with Gemini
+
 ✅ **GitHub Activity Storyteller** - Transform code changes into engaging stories
+
 ✅ **Scheduled Processor** - Delayed delivery of processed data
+
 ✅ **Delivery Tracking** - Comprehensive logging of all delivery attempts
+
 ✅ **Scalable Architecture** - Separate API and worker services
 
 ---

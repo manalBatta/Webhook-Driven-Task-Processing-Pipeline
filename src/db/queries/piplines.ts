@@ -28,4 +28,24 @@ export const createPipline = async ({
     .values({ name, actionType, actionConfig, sourceKey: crypto.randomUUID() })
     .returning();
 
+export const updatePipeline = async (
+  id: string,
+  updates: Partial<Omit<Pipeline, "id" | "createdAt" | "sourceKey">>
+): Promise<Pipeline | undefined> => {
+  const rows = await db
+    .update(pipelines)
+    .set(updates)
+    .where(eq(pipelines.id, id))
+    .returning();
+  return rows[0];
+};
+
+export const deletePipeline = async (id: string): Promise<boolean> => {
+  const result = await db
+    .delete(pipelines)
+    .where(eq(pipelines.id, id))
+    .returning();
+  return result.length > 0;
+};
+
 

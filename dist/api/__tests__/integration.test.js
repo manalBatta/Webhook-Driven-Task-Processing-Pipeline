@@ -57,10 +57,13 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
         (0, vitest_1.it)("should create a new pipeline", async () => {
             const newPipeline = {
                 name: "Test Pipeline",
-                sourceKey: `test-key-${Date.now()}`,
+                // sourceKey: `test-key-${Date.now()}`,
                 actionType: "GITHUB_ACTIVITY_STORYTELLER",
                 actionConfig: {
-                    githubUsername: "testuser",
+                    tone: "friendly",
+                    audience: "non-technical",
+                    maxLength: 500,
+                    includeFiles: true
                 },
             };
             const response = await fetch(`${API_URL}/pipelines`, {
@@ -72,10 +75,14 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
             });
             (0, vitest_1.expect)(response.status).toBe(201);
             const data = await response.json();
-            (0, vitest_1.expect)(data).toHaveProperty("id");
-            (0, vitest_1.expect)(data.name).toBe(newPipeline.name);
-            (0, vitest_1.expect)(data.sourceKey).toBe(newPipeline.sourceKey);
-            pipelineId = data.id;
+            (0, vitest_1.expect)(Array.isArray(data)).toBe(true);
+            (0, vitest_1.expect)(data).toHaveLength(1);
+            (0, vitest_1.expect)(data[0]).toHaveProperty("id");
+            (0, vitest_1.expect)(data[0]).toHaveProperty("sourceKey");
+            (0, vitest_1.expect)(data[0].name).toBe(newPipeline.name);
+            (0, vitest_1.expect)(typeof data[0].sourceKey).toBe("string");
+            (0, vitest_1.expect)(data[0].sourceKey).toBeTruthy();
+            pipelineId = data[0].id;
         });
         (0, vitest_1.it)("should retrieve pipelines", async () => {
             const response = await fetch(`${API_URL}/pipelines`);
@@ -98,7 +105,6 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
             sourceKey = `webhook-test-${Date.now()}`;
             const newPipeline = {
                 name: "Webhook Test Pipeline",
-                sourceKey: sourceKey,
                 actionType: "SCHEDULED_PROCESSOR",
                 actionConfig: {},
             };
@@ -109,6 +115,8 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
                 },
                 body: JSON.stringify(newPipeline),
             });
+            const data = await response.json();
+            sourceKey = data[0].sourceKey;
             (0, vitest_1.expect)(response.status).toBe(201);
         });
         (0, vitest_1.it)("should ingest webhook and create job", async () => {
@@ -145,7 +153,6 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
         (0, vitest_1.it)("should create a pipeline for subscriber testing", async () => {
             const newPipeline = {
                 name: "Subscriber Test Pipeline",
-                sourceKey: `subscriber-test-${Date.now()}`,
                 actionType: "SMART_ATS_SCREENER",
                 actionConfig: {},
             };
@@ -157,7 +164,7 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
                 body: JSON.stringify(newPipeline),
             });
             const data = await response.json();
-            pipelineId = data.id;
+            pipelineId = data[0].id;
         });
         (0, vitest_1.it)("should add subscriber to pipeline", async () => {
             const newSubscriber = {
@@ -178,6 +185,7 @@ async function waitForAPI(maxRetries = MAX_RETRIES) {
         });
         (0, vitest_1.it)("should retrieve subscribers for pipeline", async () => {
             const response = await fetch(`${API_URL}/pipelines/${pipelineId}/subscribers`);
+            console.log("api url=", API_URL);
             (0, vitest_1.expect)(response.status).toBe(200);
             const data = await response.json();
             (0, vitest_1.expect)(Array.isArray(data)).toBe(true);

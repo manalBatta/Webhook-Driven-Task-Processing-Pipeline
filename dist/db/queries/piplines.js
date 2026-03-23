@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createPipline = exports.getPipelineBySourceKey = exports.getPipelineById = exports.getAllPiplines = void 0;
+exports.deletePipeline = exports.updatePipeline = exports.createPipline = exports.getPipelineBySourceKey = exports.getPipelineById = exports.getAllPiplines = void 0;
 const drizzle_orm_1 = require("drizzle-orm");
 const connect_1 = require("../connect");
 const schema_1 = require("../schema");
@@ -21,3 +21,20 @@ const createPipline = async ({ name, actionType, actionConfig, }) => await conne
     .values({ name, actionType, actionConfig, sourceKey: crypto.randomUUID() })
     .returning();
 exports.createPipline = createPipline;
+const updatePipeline = async (id, updates) => {
+    const rows = await connect_1.db
+        .update(schema_1.pipelines)
+        .set(updates)
+        .where((0, drizzle_orm_1.eq)(schema_1.pipelines.id, id))
+        .returning();
+    return rows[0];
+};
+exports.updatePipeline = updatePipeline;
+const deletePipeline = async (id) => {
+    const result = await connect_1.db
+        .delete(schema_1.pipelines)
+        .where((0, drizzle_orm_1.eq)(schema_1.pipelines.id, id))
+        .returning();
+    return result.length > 0;
+};
+exports.deletePipeline = deletePipeline;

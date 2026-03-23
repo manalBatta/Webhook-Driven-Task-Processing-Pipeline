@@ -43,3 +43,44 @@ exports.pipelinesRouter.get("/:id", async (req, res) => {
         res.status(500).send("Internal server error" + error);
     }
 });
+exports.pipelinesRouter.put("/:id", async (req, res) => {
+    try {
+        const id = req.params.id.toString();
+        const updates = req.body;
+        // Validate that pipeline exists
+        const existingPipeline = await (0, piplines_1.getPipelineById)(id);
+        if (!existingPipeline) {
+            res.status(404).json({ error: "Pipeline not found" });
+            return;
+        }
+        console.log("updating pipeline", id, "with", updates);
+        const updatedPipeline = await (0, piplines_1.updatePipeline)(id, updates);
+        console.log("updated pipeline", updatedPipeline);
+        res.status(200).send(updatedPipeline);
+    }
+    catch (error) {
+        res.status(500).send("Internal server error: " + error);
+    }
+});
+exports.pipelinesRouter.delete("/:id", async (req, res) => {
+    try {
+        const id = req.params.id.toString();
+        // Validate that pipeline exists
+        const existingPipeline = await (0, piplines_1.getPipelineById)(id);
+        if (!existingPipeline) {
+            res.status(404).json({ error: "Pipeline not found" });
+            return;
+        }
+        console.log("deleting pipeline", id);
+        const deleted = await (0, piplines_1.deletePipeline)(id);
+        if (deleted) {
+            res.status(200).json({ message: "Pipeline deleted successfully", id });
+        }
+        else {
+            res.status(500).json({ error: "Failed to delete pipeline" });
+        }
+    }
+    catch (error) {
+        res.status(500).send("Internal server error: " + error);
+    }
+});
